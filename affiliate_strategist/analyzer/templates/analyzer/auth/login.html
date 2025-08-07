@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Mi Perfil</title>
+</head>
+<body>
+    <h1>Mi Perfil</h1>
+    <p>Usuario: {{ user.username }}</p>
+    <p>Plan: {{ profile.get_plan_display }}</p>
+    <p>Análisis este mes: {{ profile.analyses_this_month }}/{{ profile.analyses_limit_monthly }}</p>
+    <a href="/">Volver</a>
+</body>
+</html>

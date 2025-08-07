@@ -1,0 +1,652 @@
+<!-- analyzer/templates/analyzer/auth/register.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro - Affiliate Strategist Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .auth-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            max-width: 450px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        .logo {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        
+        .benefits {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .benefit-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        
+        .benefit-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .benefit-icon {
+            color: #667eea;
+            margin-right: 10px;
+            font-size: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #555;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .error-message {
+            color: #dc3545;
+            font-size: 14px;
+            margin-top: 5px;
+            display: none;
+        }
+        
+        .password-strength {
+            height: 4px;
+            background: #e1e1e1;
+            border-radius: 2px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+        
+        .strength-bar {
+            height: 100%;
+            width: 0;
+            transition: all 0.3s;
+        }
+        
+        .strength-weak { background: #dc3545; width: 33%; }
+        .strength-medium { background: #ffc107; width: 66%; }
+        .strength-strong { background: #28a745; width: 100%; }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-bottom: 15px;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .divider {
+            text-align: center;
+            color: #999;
+            margin: 20px 0;
+            position: relative;
+        }
+        
+        .divider::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            width: 45%;
+            height: 1px;
+            background: #e1e1e1;
+        }
+        
+        .divider::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 50%;
+            width: 45%;
+            height: 1px;
+            background: #e1e1e1;
+        }
+        
+        .login-link {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+        }
+        
+        .login-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .promo-code {
+            background: #fff3cd;
+            border: 2px dashed #ffc107;
+            border-radius: 8px;
+            padding: 10px;
+            margin-top: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .promo-code:hover {
+            background: #ffc107;
+            color: white;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+        }
+        
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">🚀</div>
+        <h2>Únete a Affiliate Strategist Pro</h2>
+        
+        <div class="benefits">
+            <div class="benefit-item">
+                <span class="benefit-icon">✅</span>
+                <span>5 análisis gratuitos cada mes</span>
+            </div>
+            <div class="benefit-item">
+                <span class="benefit-icon">✅</span>
+                <span>Acceso a plantillas profesionales</span>
+            </div>
+            <div class="benefit-item">
+                <span class="benefit-icon">✅</span>
+                <span>Exportación PDF ilimitada</span>
+            </div>
+            <div class="benefit-item">
+                <span class="benefit-icon">✅</span>
+                <span>Historial de análisis permanente</span>
+            </div>
+        </div>
+        
+        <form id="registerForm">
+            {% csrf_token %}
+            
+            <div class="form-group">
+                <label for="username">Nombre de usuario</label>
+                <input type="text" id="username" name="username" required 
+                       placeholder="johndoe" autocomplete="username">
+                <div class="error-message" id="username-error"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required 
+                       placeholder="tu@email.com" autocomplete="email">
+                <div class="error-message" id="email-error"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" required 
+                       placeholder="Mínimo 8 caracteres" autocomplete="new-password">
+                <div class="password-strength">
+                    <div class="strength-bar" id="strengthBar"></div>
+                </div>
+                <div class="error-message" id="password-error"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="password2">Confirmar contraseña</label>
+                <input type="password" id="password2" name="password2" required 
+                       placeholder="Repite tu contraseña" autocomplete="new-password">
+                <div class="error-message" id="password2-error"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="company_name">Empresa (opcional)</label>
+                <input type="text" id="company_name" name="company_name" 
+                       placeholder="Tu empresa o proyecto">
+            </div>
+            
+            <button type="submit" class="btn btn-primary">
+                Crear cuenta gratis
+            </button>
+            
+            <div class="promo-code" onclick="togglePromoCode()">
+                🎁 ¿Tienes un código de invitación?
+            </div>
+            
+            <div class="form-group" id="promoCodeField" style="display: none; margin-top: 15px;">
+                <input type="text" id="invitation_code" name="invitation_code" 
+                       placeholder="Código de invitación">
+            </div>
+        </form>
+        
+        <div class="loading" id="loadingDiv">
+            <div class="spinner"></div>
+            <p>Creando tu cuenta...</p>
+        </div>
+        
+        <div class="login-link">
+            ¿Ya tienes cuenta? <a href="/login/">Inicia sesión</a>
+        </div>
+    </div>
+    
+    <script>
+        // Validación de fuerza de contraseña
+        document.getElementById('password').addEventListener('input', function(e) {
+            const password = e.target.value;
+            const strengthBar = document.getElementById('strengthBar');
+            
+            let strength = 0;
+            if (password.length >= 8) strength++;
+            if (password.match(/[a-z]/) && password.match(/[A-Z]/)) strength++;
+            if (password.match(/[0-9]/)) strength++;
+            if (password.match(/[^a-zA-Z0-9]/)) strength++;
+            
+            strengthBar.className = 'strength-bar';
+            if (strength === 1) strengthBar.classList.add('strength-weak');
+            else if (strength === 2) strengthBar.classList.add('strength-medium');
+            else if (strength >= 3) strengthBar.classList.add('strength-strong');
+        });
+        
+        // Toggle código promocional
+        function togglePromoCode() {
+            const field = document.getElementById('promoCodeField');
+            field.style.display = field.style.display === 'none' ? 'block' : 'none';
+        }
+        
+        // Manejo del formulario
+        document.getElementById('registerForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // Limpiar errores previos
+            document.querySelectorAll('.error-message').forEach(el => {
+                el.style.display = 'none';
+                el.textContent = '';
+            });
+            
+            // Mostrar loading
+            document.getElementById('loadingDiv').style.display = 'block';
+            this.style.display = 'none';
+            
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData);
+            
+            try {
+                const response = await fetch('/register/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    // Registro exitoso
+                    alert(result.message);
+                    window.location.href = result.redirect || '/';
+                } else {
+                    // Mostrar errores
+                    document.getElementById('loadingDiv').style.display = 'none';
+                    this.style.display = 'block';
+                    
+                    if (result.errors) {
+                        for (const [field, error] of Object.entries(result.errors)) {
+                            const errorEl = document.getElementById(`${field}-error`);
+                            if (errorEl) {
+                                errorEl.textContent = error;
+                                errorEl.style.display = 'block';
+                            }
+                        }
+                    } else {
+                        alert(result.error || 'Error al registrar');
+                    }
+                }
+            } catch (error) {
+                document.getElementById('loadingDiv').style.display = 'none';
+                this.style.display = 'block';
+                alert('Error de conexión. Intenta nuevamente.');
+            }
+        });
+    </script>
+</body>
+</html>
+
+<!-- ================================================== -->
+<!-- analyzer/templates/analyzer/auth/login.html -->
+<!-- ================================================== -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - Affiliate Strategist Pro</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .auth-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.2);
+            max-width: 400px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        .logo {
+            text-align: center;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        
+        h2 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 24px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            color: #555;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        input[type="text"],
+        input[type="email"],
+        input[type="password"] {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e1e1e1;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        
+        .checkbox-group label {
+            margin: 0;
+            color: #666;
+            font-weight: normal;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .forgot-password {
+            text-align: center;
+            margin-top: 15px;
+        }
+        
+        .forgot-password a {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 14px;
+        }
+        
+        .register-link {
+            text-align: center;
+            margin-top: 25px;
+            padding-top: 25px;
+            border-top: 1px solid #e1e1e1;
+            color: #666;
+        }
+        
+        .register-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .error-alert {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .demo-accounts {
+            background: #d4edda;
+            border: 2px dashed #28a745;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .demo-accounts h4 {
+            color: #155724;
+            margin-bottom: 10px;
+        }
+        
+        .demo-account {
+            background: white;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 5px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="logo">🚀</div>
+        <h2>Bienvenido de vuelta</h2>
+        
+        <!-- Solo mostrar en desarrollo -->
+        {% if debug %}
+        <div class="demo-accounts">
+            <h4>🧪 Cuentas Demo (Desarrollo)</h4>
+            <div class="demo-account">
+                Usuario: demo_free / Pass: Demo1234
+            </div>
+            <div class="demo-account">
+                Usuario: demo_pro / Pass: Demo1234
+            </div>
+        </div>
+        {% endif %}
+        
+        <div class="error-alert" id="errorAlert"></div>
+        
+        <form id="loginForm">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ next }}">
+            
+            <div class="form-group">
+                <label for="username">Email o Usuario</label>
+                <input type="text" id="username" name="username" required 
+                       placeholder="tu@email.com o usuario" autocomplete="username">
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" required 
+                       placeholder="Tu contraseña" autocomplete="current-password">
+            </div>
+            
+            <div class="checkbox-group">
+                <input type="checkbox" id="remember_me" name="remember_me">
+                <label for="remember_me">Recordarme por 2 semanas</label>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">
+                Iniciar Sesión
+            </button>
+        </form>
+        
+        <div class="forgot-password">
+            <a href="#">¿Olvidaste tu contraseña?</a>
+        </div>
+        
+        <div class="register-link">
+            ¿No tienes cuenta? <a href="/register/">Regístrate gratis</a>
+        </div>
+    </div>
+    
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const errorAlert = document.getElementById('errorAlert');
+            errorAlert.style.display = 'none';
+            
+            const formData = new FormData(this);
+            const data = Object.fromEntries(formData);
+            
+            try {
+                const response = await fetch('/login/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    window.location.href = result.redirect || '/';
+                } else {
+                    errorAlert.textContent = result.error || 'Error al iniciar sesión';
+                    errorAlert.style.display = 'block';
+                }
+            } catch (error) {
+                errorAlert.textContent = 'Error de conexión. Intenta nuevamente.';
+                errorAlert.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>

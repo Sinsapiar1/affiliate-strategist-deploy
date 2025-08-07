@@ -1,0 +1,5 @@
+Django==4.2.7
+beautifulsoup4==4.12.2
+requests==2.31.0
+google-generativeai==0.3.0
+cohere==4.37  # Opcional, si quieres soporte para Cohere
