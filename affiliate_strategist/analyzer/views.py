@@ -1,410 +1,621 @@
-# analyzer/views.py
-# VERSIÓN ORIGINAL QUE FUNCIONABA - SIN SISTEMA DE USUARIOS
+# analyzer/views.py - VERSIÓN MEJORADA Y ROBUSTA
 
 from django.shortcuts import render
 from django.views import View
 from django.http import JsonResponse, FileResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from django.contrib.auth.decorators import login_required
+from django.db.models import Count, Q
+from datetime import datetime, timedelta
+import json
+import logging
+
 from .models import AnalysisHistory, MarketingTemplate
 from .utils.scraping import scrape_product_info
 from .utils.pdf_generator import generate_strategy_pdf
-import json
 
-# IMPORTA TU FUNCIÓN DE IA CORRECTA
+# ✅ CONFIGURAR LOGGING
+logger = logging.getLogger(__name__)
+
+# ✅ IMPORTAR FUNCIÓN DE IA CON FALLBACK
 try:
     from .utils.ai_integration import generate_strategy
-except:
-    # Si no existe, usa una temporal
+except ImportError:
+    logger.warning("AI integration not found, using fallback")
     def generate_strategy(prompt, api_key):
-        return "Estrategia temporal - revisa tu archivo ai_integration.py"
+        return "⚠️ Función de IA no disponible. Configura tu integración con Gemini."
 
 class AffiliateStrategistView(View):
-    """Vista principal para el generador de estrategias"""
+    """Vista principal mejorada con mejor manejo de errores"""
+    
+    def dispatch(self, request, *args, **kwargs):
+        """Debug y logging de requests"""
+        logger.info(f"🔍 {request.method} request to {request.path} from {request.META.get('REMOTE_ADDR')}")
+        if request.method == 'POST':
+            logger.info(f"🔍 POST data keys: {list(request.POST.keys())}")
+        return super().dispatch(request, *args, **kwargs)
     
     def get(self, request):
-        # Cargar plantillas si existen
+        """Página principal con datos contextuales"""
         try:
-            templates = MarketingTemplate.objects.filter(
-                success_rate__gte=70
-            ).order_by('-times_used')[:6]
-        except:
-            templates = []
-        
-        context = {
-            'templates': templates
-        }
-        return render(request, 'analyzer/index.html', context)
-    
-    # REEMPLAZAR la función post() en AffiliateStrategistView en analyzer/views.py
-
-def post(self, request):
-    """Procesa el análisis del producto"""
-    try:
-        # ✅ VERIFICAR qué tipo de análisis se solicita
-        analysis_type = request.POST.get('analysis_type', 'basic')
-        
-        # ✅ DEBUG: Imprimir qué se está enviando
-        print(f"Analysis type recibido: {analysis_type}")
-        print(f"POST data: {dict(request.POST)}")
-        
-        # ✅ CORREGIR la condición - debe ser 'competitive' no 'competitor'
-        if analysis_type == 'competitive' or analysis_type == 'competitor':
-            return self.competitive_analysis(request)
-        else:
-            return self.basic_analysis(request)
+            # ✅ ESTADÍSTICAS PARA EL USUARIO
+            context = {
+                'user': request.user,
+                'is_authenticated': request.user.is_authenticated,
+            }
             
-    except Exception as e:
-        print(f"Error en post(): {str(e)}")
-        return JsonResponse({
-            'success': False,
-            'error': f'Error al procesar análisis: {str(e)}'
-        })
+            # ✅ Si está autenticado, agregar estadísticas personales
+            if request.user.is_authenticated:
+                user_analyses = AnalysisHistory.objects.filter(user=request.user)
+                context.update({
+                    'user_total_analyses': user_analyses.count(),
+                    'user_successful_analyses': user_analyses.filter(success=True).count(),
+                    'user_recent_analyses': user_analyses.order_by('-created_at')[:3],
+                })
+            
+            # ✅ ESTADÍSTICAS GENERALES
+            total_analyses = AnalysisHistory.objects.filter(success=True).count()
+            context.update({
+                'total_public_analyses': total_analyses,
+                'platforms_stats': self.get_platform_stats(),
+                'recent_successful': AnalysisHistory.objects.filter(
+                    success=True
+                ).order_by('-created_at')[:5]
+            })
+            
+            # ✅ PLANTILLAS EXITOSAS
+            try:
+                templates = MarketingTemplate.objects.filter(
+                    success_rate__gte=70
+                ).order_by('-times_used')[:6]
+                context['templates'] = templates
+            except:
+                context['templates'] = []
+            
+            return render(request, 'analyzer/index.html', context)
+            
+        except Exception as e:
+            logger.error(f"Error in GET request: {str(e)}")
+            return render(request, 'analyzer/index.html', {
+                'error': 'Error al cargar la página. Intenta recargar.'
+            })
     
-    # REEMPLAZAR la función basic_analysis() en AffiliateStrategistView
-
-def basic_analysis(self, request):
-    """Análisis básico de producto - CORREGIDO"""
-    try:
-        # ✅ OBTENER datos del formulario con valores por defecto
-        product_url = request.POST.get('product_url', '').strip()
-        platform = request.POST.get('platform', 'tiktok')
-        target_audience = request.POST.get('target_audience', '')
-        additional_context = request.POST.get('additional_context', '')
-        campaign_goal = request.POST.get('campaign_goal', 'conversions')
-        budget = request.POST.get('budget', 'medium')
-        tone = request.POST.get('tone', 'professional')
-        api_key = request.POST.get('api_key', '')
-        
-        # ✅ VALIDAR que tenemos la URL del producto
-        if not product_url:
+    def post(self, request):
+        """Manejo robusto de análisis"""
+        try:
+            # ✅ VALIDAR CSRF TOKEN
+            if not request.META.get('HTTP_X_CSRFTOKEN') and 'csrfmiddlewaretoken' not in request.POST:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'Token CSRF faltante'
+                }, status=403)
+            
+            # ✅ DETERMINAR TIPO DE ANÁLISIS
+            analysis_type = request.POST.get('analysis_type', 'basic').lower()
+            logger.info(f"🎯 Procesando análisis tipo: {analysis_type}")
+            
+            # ✅ VALIDACIONES BÁSICAS
+            if not request.POST.get('api_key'):
+                return JsonResponse({
+                    'success': False,
+                    'error': 'API Key de Gemini es requerida'
+                })
+            
+            # ✅ DIRIGIR AL MÉTODO CORRECTO
+            if analysis_type in ['competitive', 'competitor']:
+                return self.competitive_analysis(request)
+            else:
+                return self.basic_analysis(request)
+                
+        except Exception as e:
+            logger.error(f"Error in POST: {str(e)}", exc_info=True)
             return JsonResponse({
                 'success': False,
-                'error': 'URL del producto es requerida'
-            })
-        
-        # ✅ DEBUG: Ver qué datos tenemos
-        print(f"Analizando producto: {product_url}")
-        print(f"Plataforma: {platform}")
-        print(f"Usuario: {request.user if request.user.is_authenticated else 'Anónimo'}")
-        
-        # ✅ SCRAPING del producto
-        product_info = scrape_product_info(product_url)
-        
-        if not product_info['success']:
-            return JsonResponse({
-                'success': False,
-                'error': 'No se pudo analizar el producto. Verifica la URL.'
-            })
-        
-        # ✅ CONSTRUIR prompt para IA
-        prompt = f"""
-        Actúa como un experto en marketing de afiliados y genera una estrategia completa.
-        
-        PRODUCTO:
-        - Título: {product_info['data'].get('title', 'Producto')}
-        - Precio: {product_info['data'].get('price', 'No especificado')}
-        - Descripción: {product_info['data'].get('description', 'No disponible')[:500]}
-        
-        CONFIGURACIÓN:
-        - Plataforma: {platform}
-        - Audiencia: {target_audience}
-        - Objetivo: {campaign_goal}
-        - Presupuesto: {budget}
-        - Tono: {tone}
-        - Contexto adicional: {additional_context}
-        
-        GENERA:
-        
-        ## 1. Análisis de Necesidades
-        ¿Qué problema resuelve este producto para la audiencia?
-        
-        ## 2. Estrategia de Contenido
-        - Tipo de contenido ideal
-        - Formato recomendado
-        - Frecuencia de publicación
-        
-        ## 3. Mensaje Principal
-        - Hook principal
-        - Puntos de dolor a atacar
-        - Beneficios clave a destacar
-        
-        ## 4. Call to Action
-        - CTA principal
-        - CTAs secundarios
-        - Urgencia/escasez
-        
-        ## 5. Hashtags y Keywords
-        Proporciona hashtags específicos para {platform}
-        
-        ## 6. Métricas de Éxito
-        - KPIs principales
-        - Objetivos realistas
-        
-        Sé específico y actionable.
-        """
-        
-        # ✅ GENERAR estrategia con IA
-        ai_response = generate_strategy(prompt, api_key)
-        
-        # ✅ GUARDAR en historial
-        analysis = AnalysisHistory.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            product_url=product_url,
-            product_title=product_info['data'].get('title', 'Producto'),
-            product_price=product_info['data'].get('price'),
-            product_description=product_info['data'].get('description'),
-            platform=platform,
-            target_audience=target_audience,
-            additional_context=additional_context,
-            campaign_goal=campaign_goal,
-            budget=budget,
-            tone=tone,
-            analysis_type='basic',
-            ai_response=ai_response,
-            success=True
-        )
-        
-        # ✅ RESPUESTA EXITOSA
-        return JsonResponse({
-            'success': True,
-            'analysis_id': analysis.id,
-            'response': ai_response,
-            'product': product_info['data']
-        })
-        
-    except Exception as e:
-        # ✅ MANEJO DE ERRORES detallado
-        print(f"Error en basic_analysis: {str(e)}")
-        return JsonResponse({
-            'success': False,
-            'error': f'Error al procesar análisis básico: {str(e)}'
-        })
+                'error': f'Error al procesar solicitud: {str(e)}'
+            }, status=500)
     
-    # REEMPLAZAR la función competitive_analysis() en AffiliateStrategistView
-
-def competitive_analysis(self, request):
-    """Análisis competitivo de múltiples productos - CORREGIDO"""
-    try:
-        # ✅ OBTENER datos con valores por defecto y validación
-        main_product_url = request.POST.get('main_product_url', '').strip()
-        if not main_product_url:
-            # Si no hay main_product_url, usar product_url como fallback
-            main_product_url = request.POST.get('product_url', '').strip()
-        
-        platform = request.POST.get('platform', 'tiktok')
-        target_audience = request.POST.get('target_audience', '')
-        api_key = request.POST.get('api_key', '')
-        
-        # ✅ VALIDAR que tenemos la URL principal
-        if not main_product_url:
+    def basic_analysis(self, request):
+        """Análisis básico mejorado"""
+        try:
+            # ✅ EXTRAER Y VALIDAR DATOS
+            data = self.extract_form_data(request, 'basic')
+            validation_error = self.validate_basic_data(data)
+            if validation_error:
+                return JsonResponse({'success': False, 'error': validation_error})
+            
+            logger.info(f"🔍 Analizando: {data['product_url']}")
+            
+            # ✅ SCRAPING CON TIMEOUT Y RETRY
+            product_info = self.safe_scrape_product(data['product_url'])
+            if not product_info['success']:
+                return JsonResponse({
+                    'success': False,
+                    'error': f'No se pudo analizar el producto: {product_info.get("error", "Error desconocido")}'
+                })
+            
+            # ✅ GENERAR PROMPT INTELIGENTE
+            prompt = self.build_basic_prompt(product_info['data'], data)
+            
+            # ✅ LLAMADA A IA CON MANEJO DE ERRORES
+            ai_response = self.safe_ai_call(prompt, data['api_key'])
+            if not ai_response['success']:
+                return JsonResponse({
+                    'success': False,
+                    'error': ai_response['error']
+                })
+            
+            # ✅ GUARDAR EN BD CON MANEJO DE ERRORES
+            analysis = self.save_analysis(request.user, product_info['data'], data, 'basic', ai_response['response'])
+            
+            # ✅ RESPUESTA EXITOSA
+            return JsonResponse({
+                'success': True,
+                'analysis_id': analysis.id,
+                'response': ai_response['response'],
+                'product': product_info['data'],
+                'message': '¡Análisis completado exitosamente!'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in basic_analysis: {str(e)}", exc_info=True)
             return JsonResponse({
                 'success': False,
-                'error': 'URL del producto principal es requerida para análisis competitivo'
-            })
-        
-        # ✅ URLs de competidores (opcional para análisis competitivo)
-        competitor_urls = []
-        for i in range(1, 6):  # Hasta 5 competidores
-            url = request.POST.get(f'competitor_{i}', '').strip()
-            if url:
-                competitor_urls.append(url)
-        
-        # ✅ DEBUG: Ver qué datos tenemos
-        print(f"Análisis competitivo - Producto principal: {main_product_url}")
-        print(f"Competidores encontrados: {len(competitor_urls)}")
-        
-        # ✅ SCRAPING del producto principal
-        main_product = scrape_product_info(main_product_url)
-        if not main_product['success']:
-            return JsonResponse({
-                'success': False,
-                'error': 'No se pudo analizar el producto principal'
-            })
-        
-        # ✅ SCRAPING de competidores (si existen)
-        competitors_data = []
-        if competitor_urls:
+                'error': 'Error interno del servidor. Intenta nuevamente.'
+            }, status=500)
+    
+    def competitive_analysis(self, request):
+        """Análisis competitivo mejorado"""
+        try:
+            # ✅ EXTRAER DATOS
+            data = self.extract_form_data(request, 'competitive')
+            validation_error = self.validate_competitive_data(data)
+            if validation_error:
+                return JsonResponse({'success': False, 'error': validation_error})
+            
+            # ✅ PRODUCTO PRINCIPAL
+            main_url = data.get('main_product_url') or data.get('product_url')
+            logger.info(f"🎯 Análisis competitivo: {main_url}")
+            
+            main_product = self.safe_scrape_product(main_url)
+            if not main_product['success']:
+                return JsonResponse({
+                    'success': False,
+                    'error': 'No se pudo analizar el producto principal'
+                })
+            
+            # ✅ COMPETIDORES (opcional)
+            competitors_data = []
+            competitor_urls = [data.get(f'competitor_{i}') for i in range(1, 6) if data.get(f'competitor_{i}')]
+            
             for url in competitor_urls:
-                comp_info = scrape_product_info(url)
+                comp_info = self.safe_scrape_product(url)
                 if comp_info['success']:
                     competitors_data.append(comp_info['data'])
+            
+            logger.info(f"📊 Competidores analizados: {len(competitors_data)}")
+            
+            # ✅ ANÁLISIS DE PRECIOS
+            price_analysis = self.analyze_pricing(main_product['data'], competitors_data)
+            
+            # ✅ PROMPT COMPETITIVO
+            prompt = self.build_competitive_prompt(main_product['data'], competitors_data, data, price_analysis)
+            
+            # ✅ IA CALL
+            ai_response = self.safe_ai_call(prompt, data['api_key'])
+            if not ai_response['success']:
+                return JsonResponse({
+                    'success': False,
+                    'error': ai_response['error']
+                })
+            
+            # ✅ GUARDAR ANÁLISIS
+            analysis = self.save_analysis(
+                user=request.user,
+                product_data=main_product['data'],
+                form_data=data,
+                analysis_type='competitive',
+                ai_response=ai_response['response'],
+                additional_data={
+                    'competitors_analyzed': len(competitors_data),
+                    'price_position': price_analysis['position'],
+                    'competitors': competitors_data[:3]  # Solo guardar primeros 3
+                }
+            )
+            
+            return JsonResponse({
+                'success': True,
+                'analysis_id': analysis.id,
+                'response': ai_response['response'],
+                'main_product': main_product['data'],
+                'competitors_analyzed': len(competitors_data),
+                'pricing_analysis': price_analysis
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in competitive_analysis: {str(e)}", exc_info=True)
+            return JsonResponse({
+                'success': False,
+                'error': 'Error en análisis competitivo. Intenta nuevamente.'
+            }, status=500)
+    
+    # ✅ MÉTODOS AUXILIARES
+    
+    def extract_form_data(self, request, analysis_type):
+        """Extrae datos del formulario de forma segura"""
+        data = {
+            'product_url': request.POST.get('product_url', '').strip(),
+            'platform': request.POST.get('platform', 'tiktok'),
+            'target_audience': request.POST.get('target_audience', '').strip(),
+            'additional_context': request.POST.get('additional_context', '').strip(),
+            'campaign_goal': request.POST.get('campaign_goal', 'conversions'),
+            'budget': request.POST.get('budget', 'medium'),
+            'tone': request.POST.get('tone', 'professional'),
+            'api_key': request.POST.get('api_key', '').strip(),
+        }
         
-        # ✅ ANÁLISIS de precios
-        prices = []
-        for comp in competitors_data:
+        if analysis_type == 'competitive':
+            data['main_product_url'] = request.POST.get('main_product_url', '').strip()
+            for i in range(1, 6):
+                data[f'competitor_{i}'] = request.POST.get(f'competitor_{i}', '').strip()
+        
+        return data
+    
+    def validate_basic_data(self, data):
+        """Valida datos para análisis básico"""
+        if not data['product_url']:
+            return 'URL del producto es requerida'
+        if not data['target_audience']:
+            return 'Público objetivo es requerido'
+        if not data['api_key']:
+            return 'API Key de Gemini es requerida'
+        return None
+    
+    def validate_competitive_data(self, data):
+        """Valida datos para análisis competitivo"""
+        main_url = data.get('main_product_url') or data.get('product_url')
+        if not main_url:
+            return 'URL del producto principal es requerida'
+        if not data['target_audience']:
+            return 'Público objetivo es requerido'
+        if not data['api_key']:
+            return 'API Key de Gemini es requerida'
+        return None
+    
+    def safe_scrape_product(self, url, max_retries=2):
+        """Scraping seguro con reintentos"""
+        for attempt in range(max_retries + 1):
             try:
-                price_str = comp.get('price', '0')
-                price = float(''.join(filter(str.isdigit, price_str.split('.')[0])))
-                prices.append(price)
-            except:
-                pass
-        
-        main_price_str = main_product['data'].get('price', '0')
+                result = scrape_product_info(url)
+                if result['success']:
+                    return result
+                if attempt == max_retries:
+                    return result
+            except Exception as e:
+                if attempt == max_retries:
+                    return {
+                        'success': False,
+                        'error': f'Error al procesar la URL: {str(e)}'
+                    }
+        return {'success': False, 'error': 'Error desconocido'}
+    
+    def safe_ai_call(self, prompt, api_key):
+        """Llamada segura a la IA"""
         try:
-            main_price = float(''.join(filter(str.isdigit, main_price_str.split('.')[0])))
-        except:
-            main_price = 0
-        
-        # ✅ DETERMINAR posición de precio
-        if prices:
-            avg_price = sum(prices) / len(prices)
-            if main_price > avg_price * 1.2:
-                price_position = 'premium'
-            elif main_price < avg_price * 0.8:
-                price_position = 'economico'
+            response = generate_strategy(prompt, api_key)
+            if response and len(response.strip()) > 10:
+                return {'success': True, 'response': response}
             else:
-                price_position = 'competitivo'
-        else:
-            price_position = 'sin_competencia'
+                return {'success': False, 'error': 'Respuesta de IA vacía o inválida'}
+        except Exception as e:
+            logger.error(f"AI call error: {str(e)}")
+            return {'success': False, 'error': 'Error en la generación con IA. Verifica tu API Key.'}
+    
+    def analyze_pricing(self, main_product, competitors_data):
+        """Análisis inteligente de precios"""
+        try:
+            # Extraer precio principal
+            main_price_str = main_product.get('price', '0')
+            main_price = self.extract_price(main_price_str)
+            
+            # Extraer precios de competidores
+            competitor_prices = []
+            for comp in competitors_data:
+                price = self.extract_price(comp.get('price', '0'))
+                if price > 0:
+                    competitor_prices.append(price)
+            
+            if not competitor_prices:
+                return {'position': 'sin_competencia', 'avg_competitor_price': 0, 'main_price': main_price}
+            
+            avg_price = sum(competitor_prices) / len(competitor_prices)
+            
+            if main_price > avg_price * 1.2:
+                position = 'premium'
+            elif main_price < avg_price * 0.8:
+                position = 'economico'
+            else:
+                position = 'competitivo'
+            
+            return {
+                'position': position,
+                'main_price': main_price,
+                'avg_competitor_price': avg_price,
+                'competitor_prices': competitor_prices
+            }
+            
+        except Exception as e:
+            logger.error(f"Pricing analysis error: {str(e)}")
+            return {'position': 'unknown', 'main_price': 0, 'avg_competitor_price': 0}
+    
+    def extract_price(self, price_str):
+        """Extrae precio numérico de string"""
+        try:
+            import re
+            # Buscar números con decimales
+            matches = re.findall(r'[\d,]+\.?\d*', str(price_str))
+            if matches:
+                price_clean = matches[0].replace(',', '')
+                return float(price_clean)
+        except:
+            pass
+        return 0
+    
+    def build_basic_prompt(self, product_data, form_data):
+        """Construye prompt inteligente para análisis básico"""
+        return f"""
+        Actúa como un experto en marketing de afiliados con 10+ años de experiencia y genera una estrategia ESPECÍFICA y ACTIONABLE.
         
-        # ✅ CONSTRUIR prompt competitivo
+        PRODUCTO A PROMOCIONAR:
+        - Título: {product_data.get('title', 'Producto')}
+        - Precio: {product_data.get('price', 'No especificado')}
+        - Descripción: {product_data.get('description', 'No disponible')[:500]}
+        
+        CONFIGURACIÓN DE CAMPAÑA:
+        - Plataforma Principal: {form_data['platform']}
+        - Audiencia Objetivo: {form_data['target_audience']}
+        - Objetivo: {form_data['campaign_goal']}
+        - Presupuesto: {form_data['budget']}
+        - Tono: {form_data['tone']}
+        - Contexto Adicional: {form_data['additional_context']}
+        
+        GENERA UNA ESTRATEGIA COMPLETA CON:
+        
+        ## 🎯 1. ANÁLISIS DEL PRODUCTO
+        - ¿Qué problema resuelve?
+        - ¿Cuál es su propuesta de valor única?
+        - ¿Por qué alguien lo compraría?
+        
+        ## 👥 2. ESTRATEGIA DE AUDIENCIA
+        - Perfil detallado del cliente ideal
+        - Puntos de dolor específicos
+        - Motivaciones de compra
+        
+        ## 📱 3. ESTRATEGIA DE CONTENIDO PARA {form_data['platform'].upper()}
+        - 5 ideas específicas de contenido
+        - Formato recomendado (video, imagen, carrusel)
+        - Frecuencia de publicación óptima
+        
+        ## 💬 4. MENSAJES CLAVE
+        - Hook principal (primera línea que captará atención)
+        - 3 beneficios principales a comunicar
+        - Call-to-action específico y persuasivo
+        
+        ## 🔥 5. TÁCTICAS DE CONVERSIÓN
+        - Estrategias de urgencia/escasez
+        - Ofertas irresistibles
+        - Seguimiento post-click
+        
+        ## 📊 6. HASHTAGS Y KEYWORDS
+        - 15 hashtags específicos para {form_data['platform']}
+        - Keywords para SEO/búsquedas
+        
+        ## 📈 7. MÉTRICAS Y OPTIMIZACIÓN
+        - KPIs principales a trackear
+        - Metas realistas para los primeros 30 días
+        - Cómo optimizar basado en resultados
+        
+        ## 💰 8. ESTRATEGIA DE PRESUPUESTO ({form_data['budget']})
+        - Distribución recomendada
+        - Cuándo y cómo escalar
+        
+        Sé MUY específico, usa números exactos y proporciona acciones concretas que se puedan implementar HOY.
+        """
+    
+    def build_competitive_prompt(self, main_product, competitors, form_data, price_analysis):
+        """Construye prompt para análisis competitivo"""
         competitors_info = "\n".join([
-            f"- {comp.get('title', 'Competidor')}: {comp.get('price', 'N/A')}"
-            for comp in competitors_data
-        ]) if competitors_data else "No se encontraron competidores para comparar"
+            f"- {comp.get('title', 'Competidor')}: {comp.get('price', 'N/A')} - {comp.get('description', '')[:100]}"
+            for comp in competitors[:5]
+        ]) if competitors else "No se proporcionaron competidores específicos"
         
-        prompt = f"""
-        Actúa como experto en competitive intelligence para marketing de afiliados.
+        return f"""
+        Actúa como un consultor de competitive intelligence y genera un PLAN DE ATAQUE para dominar tu nicho.
         
-        PRODUCTO PRINCIPAL:
-        - Título: {main_product['data'].get('title')}
-        - Precio: {main_product['data'].get('price')}
-        - Posición de precio: {price_position}
+        TU PRODUCTO:
+        - Título: {main_product.get('title')}
+        - Precio: {main_product.get('price')} (Posición: {price_analysis['position']})
+        - Descripción: {main_product.get('description', '')[:300]}
         
-        COMPETIDORES ANALIZADOS:
+        COMPETENCIA ANALIZADA:
         {competitors_info}
         
-        PLATAFORMA: {platform}
-        AUDIENCIA: {target_audience}
+        MERCADO OBJETIVO:
+        - Plataforma: {form_data['platform']}
+        - Audiencia: {form_data['target_audience']}
         
-        GENERA UN ANÁLISIS COMPETITIVO:
+        GENERA UNA ESTRATEGIA COMPETITIVA:
         
-        ## POSICIONAMIENTO ESTRATÉGICO
+        ## 🎯 ANÁLISIS COMPETITIVO
+        ### Ventajas de tu producto vs competencia
+        ### Debilidades que debes mejorar
+        ### Oportunidades no explotadas
         
-        ### Tu Ventaja Competitiva Única
-        ¿Cómo diferenciarte de la competencia?
+        ## ⚔️ ESTRATEGIAS DE DIFERENCIACIÓN
+        ### Cómo posicionarte como ÚNICO
+        ### Ángulos que la competencia NO usa
+        ### Propuesta de valor disruptiva
         
-        ### Gaps de Mercado Identificados
-        ¿Qué NO están haciendo tus competidores?
+        ## 💰 ESTRATEGIA DE PRECIO ({price_analysis['position']})
+        ### Cómo justificar tu precio
+        ### Tácticas de valor percibido
+        ### Promociones estratégicas
         
-        ## ESTRATEGIA DE PRECIO
+        ## 🚀 PLAN DE ATAQUE INMEDIATO
+        ### 5 acciones para robar market share
+        ### Contenido que supere a la competencia
+        ### Tácticas de guerrilla marketing
         
-        Tu precio es {price_position}. ¿Cómo comunicarlo?
+        ## 📊 MONITOREO COMPETITIVO
+        ### Qué trackear de la competencia
+        ### Cómo reaccionar a sus movimientos
+        ### Indicadores de alerta temprana
         
-        ## TÁCTICAS DE ATAQUE
-        
-        ### Para Robar Market Share
-        5 tácticas específicas e inmediatas
-        
-        ### Ángulos No Explotados
-        Oportunidades que la competencia ignora
-        
-        ## PLAN DE ACCIÓN INMEDIATO
-        
-        3 acciones para implementar HOY
-        
-        Sé MUY específico y agresivo en las recomendaciones.
+        Sé AGRESIVO y específico. El objetivo es DOMINAR este nicho en los próximos 90 días.
         """
-        
-        # ✅ GENERAR estrategia competitiva
-        ai_response = generate_strategy(prompt, api_key)
-        
-        # ✅ GUARDAR análisis
-        analysis = AnalysisHistory.objects.create(
-            user=request.user if request.user.is_authenticated else None,
-            product_url=main_product_url,
-            product_title=main_product['data'].get('title', 'Producto'),
-            product_price=main_product['data'].get('price'),
-            platform=platform,
-            target_audience=target_audience,
-            analysis_type='competitive',
-            ai_response=ai_response,
-            success=True,
-            additional_data={
-                'competitors_analyzed': len(competitors_data),
-                'price_position': price_position,
-                'competitors': competitors_data
-            }
-        )
-        
-        # ✅ RESPUESTA EXITOSA
-        return JsonResponse({
-            'success': True,
-            'analysis_id': analysis.id,
-            'response': ai_response,
-            'main_product': main_product['data'],
-            'competitors_analyzed': len(competitors_data),
-            'pricing_analysis': {
-                'position': price_position,
-                'recommendation': f'Estrategia de precio: {price_position}'
-            }
-        })
-        
-    except Exception as e:
-        # ✅ MANEJO DE ERRORES detallado
-        print(f"Error en competitive_analysis: {str(e)}")
-        return JsonResponse({
-            'success': False,
-            'error': f'Error en análisis competitivo: {str(e)}'
-        })
-
-
-# Vista para descargar PDF
-def download_pdf(request, analysis_id):
-    """Descarga el análisis como PDF"""
-    try:
-        analysis = AnalysisHistory.objects.get(id=analysis_id)
-        pdf_buffer = generate_strategy_pdf(analysis)
-        
-        filename = f"estrategia_{analysis.product_title[:30]}_{analysis.id}.pdf"
-        
-        return FileResponse(
-            pdf_buffer,
-            as_attachment=True,
-            filename=filename
-        )
-    except AnalysisHistory.DoesNotExist:
-        return JsonResponse({'error': 'Análisis no encontrado'}, status=404)
     
+    def save_analysis(self, user, product_data, form_data, analysis_type, ai_response, additional_data=None):
+        """Guarda análisis en la base de datos"""
+        try:
+            analysis = AnalysisHistory.objects.create(
+                user=user if user.is_authenticated else None,
+                product_url=form_data.get('main_product_url') or form_data['product_url'],
+                product_title=product_data.get('title', 'Producto'),
+                product_price=product_data.get('price'),
+                product_description=product_data.get('description'),
+                platform=form_data['platform'],
+                target_audience=form_data['target_audience'],
+                additional_context=form_data['additional_context'],
+                campaign_goal=form_data['campaign_goal'],
+                budget=form_data['budget'],
+                tone=form_data['tone'],
+                analysis_type=analysis_type,
+                ai_response=ai_response,
+                success=True,
+                additional_data=additional_data
+            )
+            logger.info(f"✅ Analysis saved with ID: {analysis.id}")
+            return analysis
+        except Exception as e:
+            logger.error(f"Error saving analysis: {str(e)}")
+            raise
     
-# AGREGAR AL FINAL DE analyzer/views.py
-# Vistas que faltan referenciadas en urls.py
+    def get_platform_stats(self):
+        """Estadísticas por plataforma"""
+        try:
+            return AnalysisHistory.objects.filter(success=True).values('platform').annotate(
+                count=Count('id')
+            ).order_by('-count')[:5]
+        except:
+            return []
 
+
+# ✅ VISTAS DE HISTORIAL MEJORADAS
 class UserHistoryView(View):
-    """Vista de historial para usuarios autenticados"""
+    """Vista de historial mejorada"""
     
     def get(self, request):
-        # Si está autenticado, mostrar SUS análisis
         if request.user.is_authenticated:
             analyses = AnalysisHistory.objects.filter(
-                user=request.user if hasattr(AnalysisHistory, 'user') else None
-            ).order_by('-created_at')[:50] if hasattr(AnalysisHistory, 'user') else AnalysisHistory.objects.all()[:50]
+                user=request.user
+            ).order_by('-created_at')
+            
+            # Paginación simple
+            page = request.GET.get('page', 1)
+            try:
+                page = int(page)
+            except:
+                page = 1
+            
+            start = (page - 1) * 20
+            end = start + 20
+            
+            context = {
+                'analyses': analyses[start:end],
+                'is_authenticated': True,
+                'user': request.user,
+                'total_analyses': analyses.count(),
+                'has_next': analyses.count() > end,
+                'has_prev': page > 1,
+                'current_page': page,
+                'next_page': page + 1 if analyses.count() > end else None,
+                'prev_page': page - 1 if page > 1 else None,
+            }
         else:
-            # Si no está autenticado, mostrar análisis públicos
-            analyses = AnalysisHistory.objects.all().order_by('-created_at')[:20]
-        
-        context = {
-            'analyses': analyses,
-            'is_authenticated': request.user.is_authenticated,
-            'user': request.user if request.user.is_authenticated else None,
-            'total_analyses': analyses.count() if analyses else 0
-        }
+            # Mostrar análisis públicos para usuarios no autenticados
+            analyses = AnalysisHistory.objects.filter(
+                success=True
+            ).order_by('-created_at')[:20]
+            
+            context = {
+                'analyses': analyses,
+                'is_authenticated': False,
+                'total_analyses': analyses.count()
+            }
         
         return render(request, 'analyzer/history.html', context)
 
 
 class PublicHistoryView(View):
-    """Vista de historial público/compartido"""
+    """Vista de historial público mejorada"""
     
     def get(self, request):
-        # Mostrar solo análisis exitosos
-        analyses = AnalysisHistory.objects.filter(
-            success=True
-        ).order_by('-created_at')[:30]
+        # Filtros opcionales
+        platform = request.GET.get('platform')
+        analysis_type = request.GET.get('type')
+        
+        analyses = AnalysisHistory.objects.filter(success=True)
+        
+        if platform:
+            analyses = analyses.filter(platform=platform)
+        if analysis_type:
+            analyses = analyses.filter(analysis_type=analysis_type)
+        
+        analyses = analyses.order_by('-created_at')[:30]
+        
+        # Estadísticas
+        platforms = AnalysisHistory.objects.filter(success=True).values_list('platform', flat=True).distinct()
         
         context = {
             'analyses': analyses,
             'is_public': True,
-            'total_analyses': analyses.count()
+            'total_analyses': analyses.count(),
+            'available_platforms': platforms,
+            'selected_platform': platform,
+            'selected_type': analysis_type,
         }
         
         return render(request, 'analyzer/public_history.html', context)
+
+
+# ✅ FUNCIÓN DE DESCARGA MEJORADA
+def download_pdf(request, analysis_id):
+    """Descarga PDF con mejor manejo de errores"""
+    try:
+        analysis = AnalysisHistory.objects.get(id=analysis_id)
+        
+        # Verificar permisos
+        if analysis.user and analysis.user != request.user and not request.user.is_superuser:
+            return JsonResponse({'error': 'Sin permisos para descargar este análisis'}, status=403)
+        
+        pdf_buffer = generate_strategy_pdf(analysis)
+        
+        filename = f"estrategia_{analysis.product_title[:30].replace(' ', '_')}_{analysis.id}.pdf"
+        
+        response = FileResponse(
+            pdf_buffer,
+            as_attachment=True,
+            filename=filename,
+            content_type='application/pdf'
+        )
+        
+        # Headers adicionales
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        
+        return response
+        
+    except AnalysisHistory.DoesNotExist:
+        return JsonResponse({'error': 'Análisis no encontrado'}, status=404)
+    except Exception as e:
+        logger.error(f"PDF download error: {str(e)}")
+        return JsonResponse({'error': 'Error al generar PDF'}, status=500)

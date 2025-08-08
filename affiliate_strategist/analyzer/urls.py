@@ -1,5 +1,4 @@
-# analyzer/urls.py
-# URLs actualizadas con sistema de usuarios
+# analyzer/urls.py - CONFIGURACIÓN MEJORADA
 
 from django.urls import path
 from .views import (
@@ -16,23 +15,30 @@ from .views_auth import (
     UpgradeView
 )
 
+# ✅ NAMESPACE para evitar conflictos
+app_name = 'analyzer'
+
 urlpatterns = [
-    # Página principal
+    # ✅ PÁGINA PRINCIPAL - Acepta GET y POST
     path('', AffiliateStrategistView.as_view(), name='home'),
     
-    # Autenticación
+    # ✅ AUTENTICACIÓN
     path('register/', RegisterView.as_view(), name='register'),
     path('login/', LoginView.as_view(), name='login'),
     path('logout/', LogoutView.as_view(), name='logout'),
     
-    # Perfil y cuenta
+    # ✅ PERFIL Y CUENTA
     path('profile/', ProfileView.as_view(), name='profile'),
     path('upgrade/', UpgradeView.as_view(), name='upgrade'),
     
-    # Historial
+    # ✅ HISTORIAL
     path('history/', UserHistoryView.as_view(), name='user_history'),
     path('public-history/', PublicHistoryView.as_view(), name='public_history'),
     
-    # Descargas
+    # ✅ DESCARGAS
     path('download-pdf/<int:analysis_id>/', download_pdf, name='download_pdf'),
+    
+    # ✅ RUTAS API FUTURAS (preparadas)
+    # path('api/analyze/', AnalyzeAPIView.as_view(), name='api_analyze'),
+    # path('api/templates/', TemplatesAPIView.as_view(), name='api_templates'),
 ]
