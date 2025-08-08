@@ -401,63 +401,133 @@
             }
         }
 
-        function handleFormSubmit(form, e) {
-            e.preventDefault();
-            
-            // Validar formulario
-            if (!form.checkValidity()) {
-                form.classList.add('was-validated');
-                return;
-            }
+// REEMPLAZA la función handleFormSubmit con esta versión mejorada:
 
-            showLoading(true);
-            alertContainer.innerHTML = '';
-            resultsSection.style.display = 'none';
+// Objeto para almacenar múltiples resultados
+let analysisResults = {
+    basic: null,
+    competitive: null
+};
 
-            const formData = new FormData(form);
+function handleFormSubmit(form, e) {
+    e.preventDefault();
+    
+    if (!form.checkValidity()) {
+        form.classList.add('was-validated');
+        return;
+    }
 
-            fetch('/', {
-                method: 'POST',
-                body: formData,
-                headers: {
-                    'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-                }
-            })
-            .then(response => response.json())
-            .then(data => {
-                showLoading(false);
-                
-                if (data.success) {
-                    showAlert('¡Análisis completado exitosamente!', 'success');
-                    
-                    // Mostrar resultados
-                    resultsContent.innerHTML = `
-                        <div class="success-result">
-                            <h5><i class="fas fa-sparkles me-2"></i>Estrategia Generada</h5>
-                            <div class="mt-3" style="white-space: pre-wrap; line-height: 1.6;">${data.response}</div>
-                            <div class="mt-3">
-                                <a href="/download-pdf/${data.analysis_id}/" class="btn btn-light">
-                                    <i class="fas fa-download me-2"></i>Descargar PDF
-                                </a>
-                                <button class="btn btn-outline-light ms-2" onclick="shareStrategy()">
-                                    <i class="fas fa-share me-2"></i>Compartir
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                    resultsSection.style.display = 'block';
-                    resultsSection.scrollIntoView({ behavior: 'smooth' });
-                } else {
-                    showAlert(data.error || 'Error al procesar el análisis');
-                }
-            })
-            .catch(error => {
-                showLoading(false);
-                console.error('Error:', error);
-                showAlert('Error de conexión. Intenta nuevamente.');
-            });
+    showLoading(true);
+    alertContainer.innerHTML = '';
+    
+    const formData = new FormData(form);
+    const analysisType = formData.get('analysis_type');
+
+    fetch('/', {
+        method: 'POST',
+        body: formData,
+        headers: {
+            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
         }
+    })
+    .then(response => response.json())
+    .then(data => {
+        showLoading(false);
+        
+        if (data.success) {
+            showAlert('¡Análisis completado exitosamente!', 'success');
+            
+            // Guardar resultado según el tipo
+            if (analysisType === 'competitive') {
+                analysisResults.competitive = data;
+            } else {
+                analysisResults.basic = data;
+            }
+            
+            // Mostrar tabs si hay múltiples resultados
+            updateResultsTabs();
+            
+            // Mostrar el resultado actual
+            displayResult(analysisType, data);
+            
+            resultsSection.style.display = 'block';
+            resultsSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+            showAlert(data.error || 'Error al procesar el análisis');
+        }
+    })
+    .catch(error => {
+        showLoading(false);
+        console.error('Error:', error);
+        showAlert('Error de conexión. Intenta nuevamente.');
+    });
+}
 
+// Función para actualizar tabs
+function updateResultsTabs() {
+    const hasBasic = analysisResults.basic !== null;
+    const hasCompetitive = analysisResults.competitive !== null;
+    
+    if (hasBasic && hasCompetitive) {
+        // Crear tabs si no existen
+        if (!document.getElementById('resultTabs')) {
+            const tabsHTML = `
+                <ul class="nav nav-pills justify-content-center mb-3" id="resultTabs">
+                    <li class="nav-item">
+                        <button class="nav-link active" onclick="showResult('basic')">
+                            📊 Análisis Básico
+                        </button>
+                    </li>
+                    <li class="nav-item">
+                        <button class="nav-link" onclick="showResult('competitive')">
+                            ⚔️ Análisis Competitivo
+                        </button>
+                    </li>
+                </ul>
+            `;
+            resultsContent.insertAdjacentHTML('beforebegin', tabsHTML);
+        }
+    }
+}
+
+// Función para mostrar resultado específico
+function showResult(type) {
+    // Actualizar tabs activos
+    document.querySelectorAll('#resultTabs .nav-link').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    event.target.classList.add('active');
+    
+    // Mostrar el resultado correspondiente
+    const result = analysisResults[type];
+    if (result) {
+        displayResult(type, result);
+    }
+}
+
+// Función para mostrar el resultado
+function displayResult(type, data) {
+    const bgColor = type === 'competitive' ? 'danger' : 'success';
+    const icon = type === 'competitive' ? '⚔️' : '✨';
+    const title = type === 'competitive' ? 'Estrategia Competitiva' : 'Estrategia Generada';
+    
+    resultsContent.innerHTML = `
+        <div class="alert alert-${bgColor} bg-opacity-10">
+            <h5>${icon} ${title}</h5>
+            <div class="mt-3" style="white-space: pre-wrap; line-height: 1.6;">
+                ${data.response}
+            </div>
+            <div class="mt-3">
+                <a href="/download-pdf/${data.analysis_id}/" class="btn btn-${bgColor}">
+                    <i class="fas fa-download me-2"></i>Descargar PDF
+                </a>
+                <button class="btn btn-outline-${bgColor} ms-2" onclick="shareStrategy()">
+                    <i class="fas fa-share me-2"></i>Compartir
+                </button>
+            </div>
+        </div>
+    `;
+}
         // ✅ EVENT LISTENERS
         if (basicForm) {
             basicForm.addEventListener('submit', (e) => handleFormSubmit(basicForm, e));

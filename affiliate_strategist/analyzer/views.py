@@ -31,9 +31,9 @@ class AffiliateStrategistView(View):
     
     def dispatch(self, request, *args, **kwargs):
         """Debug y logging de requests"""
-        logger.info(f"🔍 {request.method} request to {request.path} from {request.META.get('REMOTE_ADDR')}")
+        logger.info(f"[DEBUG] {request.method} request to {request.path} from {request.META.get('REMOTE_ADDR')}")
         if request.method == 'POST':
-            logger.info(f"🔍 POST data keys: {list(request.POST.keys())}")
+            logger.info(f"[DEBUG] POST data keys: {list(request.POST.keys())}")
         return super().dispatch(request, *args, **kwargs)
     
     def get(self, request):
@@ -93,7 +93,7 @@ class AffiliateStrategistView(View):
             
             # ✅ DETERMINAR TIPO DE ANÁLISIS
             analysis_type = request.POST.get('analysis_type', 'basic').lower()
-            logger.info(f"🎯 Procesando análisis tipo: {analysis_type}")
+            logger.info(f"[PROCESSING] Procesando análisis tipo: {analysis_type}")
             
             # ✅ VALIDACIONES BÁSICAS
             if not request.POST.get('api_key'):
@@ -124,7 +124,7 @@ class AffiliateStrategistView(View):
             if validation_error:
                 return JsonResponse({'success': False, 'error': validation_error})
             
-            logger.info(f"🔍 Analizando: {data['product_url']}")
+            logger.info(f"[ANALYZING] Analizando: {data['product_url']}")
             
             # ✅ SCRAPING CON TIMEOUT Y RETRY
             product_info = self.safe_scrape_product(data['product_url'])
@@ -175,7 +175,7 @@ class AffiliateStrategistView(View):
             
             # ✅ PRODUCTO PRINCIPAL
             main_url = data.get('main_product_url') or data.get('product_url')
-            logger.info(f"🎯 Análisis competitivo: {main_url}")
+            logger.info(f"[COMPETITIVE] Análisis competitivo: {main_url}")
             
             main_product = self.safe_scrape_product(main_url)
             if not main_product['success']:
@@ -303,13 +303,16 @@ class AffiliateStrategistView(View):
         """Llamada segura a la IA"""
         try:
             response = generate_strategy(prompt, api_key)
-            if response and len(response.strip()) > 10:
-                return {'success': True, 'response': response}
+            if response and isinstance(response, dict) and response.get('success'):
+                return {'success': True, 'response': response.get('response', '')}
             else:
                 return {'success': False, 'error': 'Respuesta de IA vacía o inválida'}
         except Exception as e:
             logger.error(f"AI call error: {str(e)}")
             return {'success': False, 'error': 'Error en la generación con IA. Verifica tu API Key.'}
+    
+    
+    
     
     def analyze_pricing(self, main_product, competitors_data):
         """Análisis inteligente de precios"""
@@ -492,9 +495,9 @@ class AffiliateStrategistView(View):
                 analysis_type=analysis_type,
                 ai_response=ai_response,
                 success=True,
-                additional_data=additional_data
+                additional_data=additional_data if additional_data else {}
             )
-            logger.info(f"✅ Analysis saved with ID: {analysis.id}")
+            logger.info(f"[SUCCESS] Analysis saved with ID: {analysis.id}")
             return analysis
         except Exception as e:
             logger.error(f"Error saving analysis: {str(e)}")
