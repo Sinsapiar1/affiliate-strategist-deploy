@@ -80,3 +80,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# OPCIÓN B: Si no encuentras el archivo, buscar archivos grandes
+git ls-files --others --ignored --exclude-standard
+dir *.zip

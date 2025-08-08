@@ -27,19 +27,34 @@ class AnalysisHistory(models.Model):
     ])
     
     # Datos del producto
-    product_title = models.CharField(max_length=300, blank=True)
-    product_description = models.TextField(blank=True)
-    product_price = models.CharField(max_length=50, blank=True)
-    product_image = models.URLField(blank=True)
-    product_category = models.CharField(max_length=100, blank=True)
-    product_rating = models.FloatField(null=True, blank=True)
-    
-    # Configuración adicional
+    product_url = models.URLField()
+    product_title = models.CharField(max_length=255)
+    product_price = models.CharField(max_length=100, blank=True, null=True)
+    product_description = models.TextField(blank=True, null=True)
+    platform = models.CharField(max_length=50)
+    target_audience = models.CharField(max_length=200)
     additional_context = models.TextField(blank=True, null=True)
-    campaign_goal = models.CharField(max_length=50, blank=True, null=True)
-    budget = models.CharField(max_length=50, blank=True, null=True)
-    tone = models.CharField(max_length=50, blank=True, null=True)
+    campaign_goal = models.CharField(max_length=50, default='conversions')
+    budget = models.CharField(max_length=20, default='medium')
+    tone = models.CharField(max_length=20, default='professional')
+    analysis_type = models.CharField(max_length=20, choices=[
+        ('basic', 'Básico'),
+        ('competitive', 'Competitivo')
+    ], default='basic')
+    ai_response = models.TextField()
+    success = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
     
+    # ✅ AGREGAR ESTE CAMPO NUEVO:
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
+    additional_data = models.JSONField(blank=True, null=True)  # Para datos extra
+    
+    def __str__(self):
+        return f"{self.product_title} - {self.analysis_type} - {self.created_at.date()}"
+    
+    class Meta:
+        ordering = ['-created_at']
+        
     # Tipo de análisis
     analysis_type = models.CharField(
         max_length=20,
