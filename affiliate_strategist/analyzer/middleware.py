@@ -151,3 +151,20 @@ class MaintenanceModeMiddleware:
             return render(request, 'analyzer/maintenance.html', status=503)
         
         return self.get_response(request)
+    
+    # analyzer/middleware.py - AGREGAR esta clase (no reemplazar las existentes)
+
+class UserLimitsMiddleware:
+    """Middleware para verificar y actualizar límites de usuario"""
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        # Reset contador mensual si es necesario
+        if hasattr(request, 'user') and request.user.is_authenticated:
+            if hasattr(request.user, 'profile'):
+                request.user.profile.reset_monthly_counter_if_needed()
+        
+        response = self.get_response(request)
+        return response

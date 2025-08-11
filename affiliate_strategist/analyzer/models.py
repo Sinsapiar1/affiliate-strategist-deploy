@@ -315,6 +315,80 @@ class UserProfile(models.Model):
         
         self.save()
 
+    # ✅ AGREGAR ESTOS NUEVOS MÉTODOS:
+        
+        def reset_monthly_counter_if_needed(self):
+            """Resetea el contador mensual si cambió el mes"""
+            from django.utils import timezone
+            from datetime import datetime
+            
+            now = timezone.now()
+            
+            # Si no hay fecha de último reset, establecerla
+            if not hasattr(self, 'last_reset_date'):
+                self.last_reset_date = now
+                self.save()
+                return
+            
+            # Verificar si cambió el mes
+            if (now.month != self.last_reset_date.month or 
+                now.year != self.last_reset_date.year):
+                self.analyses_this_month = 0
+                self.last_reset_date = now
+                self.save()
+                logger.info(f"Reset mensual para usuario {self.user.username}")
+        
+        def increment_analysis_count(self):
+            """Incrementa el contador de análisis del mes"""
+            self.reset_monthly_counter_if_needed()
+            self.analyses_this_month += 1
+            self.total_analyses += 1
+            self.save(update_fields=['analyses_this_month', 'total_analyses'])
+        
+        def get_plan_details(self):
+            """Retorna detalles completos del plan"""
+            plans = {
+                'free': {
+                    'name': 'Gratuito',
+                    'emoji': '🆓',
+                    'monthly_limit': 5,
+                    'features': [
+                        '5 análisis básicos por mes',
+                        'Descarga de PDF',
+                        'Historial básico'
+                    ],
+                    'restrictions': [
+                        'Sin análisis competitivos',
+                        'Sin prioridad en procesamiento',
+                        'Sin soporte premium'
+                    ]
+                },
+                'pro': {
+                    'name': 'Profesional',
+                    'emoji': '⭐',
+                    'monthly_limit': 100,
+                    'features': [
+                        '100 análisis por mes',
+                        'Análisis competitivos ilimitados',
+                        'Plantillas premium',
+                        'Soporte prioritario'
+                    ],
+                    'restrictions': []
+                },
+                'premium': {
+                    'name': 'Premium',
+                    'emoji': '💎',
+                    'monthly_limit': 999999,  # Ilimitado
+                    'features': [
+                        'Análisis ILIMITADOS',
+                        'Todas las funcionalidades',
+                        'API Access',
+                        'Soporte 24/7'
+                    ],
+                    'restrictions': []
+                }
+            }
+            return plans.get(self.plan, plans['free'])
 
 # ✅ SISTEMA DE FEEDBACK Y RATING
 class AnalysisFeedback(models.Model):
