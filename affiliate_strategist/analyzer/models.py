@@ -96,6 +96,7 @@ class AnalysisHistory(models.Model):
     # ✅ TIMESTAMPS
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_reset_date = models.DateField(default=timezone.now, help_text='Fecha del último reset del contador mensual')
     
     # ✅ COMPARTIR Y PRIVACIDAD
     is_public = models.BooleanField(default=False)
@@ -112,6 +113,32 @@ class AnalysisHistory(models.Model):
         ]
         verbose_name = 'Análisis'
         verbose_name_plural = 'Análisis'
+        
+
+    def reset_monthly_counter_if_needed(self):
+        """Resetea el contador mensual si ha pasado un mes"""
+        from django.utils import timezone
+        
+        now = timezone.now()
+        
+        if not hasattr(self, 'last_reset_date') or not self.last_reset_date:
+            self.last_reset_date = self.created_at.date() if self.created_at else now.date()
+            self.save(update_fields=['last_reset_date'])
+            return
+        
+        if (now.year > self.last_reset_date.year or 
+            (now.year == self.last_reset_date.year and now.month > self.last_reset_date.month)):
+            
+            self.analyses_this_month = 0
+            self.last_reset_date = now.date()
+            self.save(update_fields=['analyses_this_month', 'last_reset_date'])
+
+    def add_analysis_count(self):
+        """Incrementa el contador de análisis del mes"""
+        self.reset_monthly_counter_if_needed()
+        self.analyses_this_month += 1
+        self.total_analyses += 1
+        self.save(update_fields=['analyses_this_month', 'total_analyses'])
     
     def __str__(self):
         return f"{self.product_title} - {self.analysis_type} ({self.created_at.date()})"
@@ -178,6 +205,7 @@ class MarketingTemplate(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_reset_date = models.DateField(default=timezone.now, help_text='Fecha del último reset del contador mensual')
     
     class Meta:
         ordering = ['-success_rate', '-times_used']
@@ -242,6 +270,7 @@ class UserProfile(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    last_reset_date = models.DateField(default=timezone.now, help_text='Fecha del último reset del contador mensual')
     
     class Meta:
         indexes = [
@@ -317,27 +346,40 @@ class UserProfile(models.Model):
 
     # ✅ AGREGAR ESTOS NUEVOS MÉTODOS:
         
-        def reset_monthly_counter_if_needed(self):
-            """Resetea el contador mensual si cambió el mes"""
-            from django.utils import timezone
-            from datetime import datetime
-            
-            now = timezone.now()
-            
-            # Si no hay fecha de último reset, establecerla
-            if not hasattr(self, 'last_reset_date'):
-                self.last_reset_date = now
-                self.save()
-                return
-            
-            # Verificar si cambió el mes
-            if (now.month != self.last_reset_date.month or 
-                now.year != self.last_reset_date.year):
-                self.analyses_this_month = 0
-                self.last_reset_date = now
-                self.save()
-                logger.info(f"Reset mensual para usuario {self.user.username}")
+    def reset_monthly_counter_if_needed(self):
+        """
+        Resetea el contador mensual si ha pasado un mes
+        """
+        from django.utils import timezone
+        from datetime import datetime
         
+        now = timezone.now()
+        
+        # Si no hay fecha de último reset, usar la fecha de creación
+        if not hasattr(self, 'last_reset_date') or not self.last_reset_date:
+            self.last_reset_date = self.created_at.date() if self.created_at else now.date()
+            self.save(update_fields=['last_reset_date'])
+            return
+        
+        # Si ha pasado un mes desde el último reset
+        if (now.year > self.last_reset_date.year or 
+            (now.year == self.last_reset_date.year and now.month > self.last_reset_date.month)):
+            
+            self.analyses_this_month = 0
+            self.last_reset_date = now.date()
+            self.save(update_fields=['analyses_this_month', 'last_reset_date'])
+            
+            print(f"💫 Contador mensual reseteado para usuario {self.user.username}")
+
+    def add_analysis_count(self):
+        """
+        Incrementa el contador de análisis del mes
+        """
+        self.reset_monthly_counter_if_needed()
+        self.analyses_this_month += 1
+        self.total_analyses += 1
+        self.save(update_fields=['analyses_this_month', 'total_analyses'])
+    
         def increment_analysis_count(self):
             """Incrementa el contador de análisis del mes"""
             self.reset_monthly_counter_if_needed()
