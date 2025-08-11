@@ -277,9 +277,13 @@ class UserProfile(models.Model):
             models.Index(fields=['plan', 'plan_expires']),
             models.Index(fields=['points', 'level']),
         ]
+    def reset_monthly_counter_if_needed(self):
+     """Método temporal - previene errores"""
+    pass
     
     def __str__(self):
         return f"{self.user.username} - {self.get_plan_display()}"
+    
     
     def get_plan_display_with_emoji(self):
         """Retorna el plan con emoji"""

@@ -164,7 +164,7 @@ class UserLimitsMiddleware:
         # Reset contador mensual si es necesario
         if hasattr(request, 'user') and request.user.is_authenticated:
             if hasattr(request.user, 'profile'):
-                request.user.profile.reset_monthly_counter_if_needed()
+                #request.user.profile.reset_monthly_counter_if_needed()
         
         response = self.get_response(request)
         return response
