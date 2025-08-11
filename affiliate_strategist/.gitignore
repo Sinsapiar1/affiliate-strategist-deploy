@@ -1,17 +1,22 @@
-# Django .gitignore
+# .gitignore MEJORADO para Affiliate Strategist Pro
 
-# Virtual Environment
+# ✅ ENTORNOS VIRTUALES
 venv/
 env/
 ENV/
 .venv/
+.env/
+venv*/
 
-# Database
+# ✅ BASE DE DATOS
 *.sqlite3
-db.sqlite3
+db.sqlite3*
 *.db
+*.sqlite
+backups/*.sql
+deployment/backups/*.sql
 
-# Python
+# ✅ PYTHON
 __pycache__/
 *.py[cod]
 *$py.class
@@ -29,58 +34,134 @@ parts/
 sdist/
 var/
 wheels/
+pip-wheel-metadata/
+share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
 MANIFEST
 
-# Django stuff
+# ✅ DJANGO ESPECÍFICO
 *.log
+logs/
 local_settings.py
-db.sqlite3
 db.sqlite3-journal
 media/
 staticfiles/
+static_collected/
+celerybeat-schedule
+celerybeat.pid
 
-# Secret keys and sensitive info
+# ✅ CONFIGURACIONES SENSIBLES
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 secret_key.txt
 *.key
+*.pem
+*.p12
+config/settings/local.py
+config/settings/production.py
 
-# IDEs
+# ✅ ARCHIVOS DE DESARROLLO Y TESTING
+.coverage
+htmlcov/
+.pytest_cache/
+.cache/
+.tox/
+.coverage.*
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ✅ IDEs Y EDITORES
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+.spyderproject
+.spyproject
+.ropeproject
 
-# OS
+# ✅ SISTEMAS OPERATIVOS
+# macOS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
+# Windows
 ehthumbs.db
 Thumbs.db
+Thumbs.db:encryptable
+desktop.ini
+# Linux
+*~
 
-# Uploads and user files
-uploads/
-user_files/
-
-# Cache and temporary files
+# ✅ ARCHIVOS TEMPORALES Y CACHE
+temp/
+tmp/
+*.tmp
 .cache/
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Node modules (si usas frontend)
-node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# OPCIÓN B: Si no encuentras el archivo, buscar archivos grandes
-git ls-files --others --ignored --exclude-standard
-dir *.zip
+# ✅ UPLOADS Y ARCHIVOS DE USUARIO
+uploads/
+user_files/
+user_uploads/
+media/uploads/
+
+# ✅ DOCUMENTACIÓN GENERADA
+docs/_build/
+docs/build/
+site/
+
+# ✅ DEPENDENCIAS FRONT-END (si las usas)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# ✅ ARCHIVOS DE BACKUP Y VERSIONES
+*.bak
+*.backup
+*.orig
+*_backup.py
+*_old.py
+*.old
+
+# ✅ ARCHIVOS ESPECÍFICOS DEL PROYECTO
+# Scripts de prueba temporales
+test_*.py
+temp_*.py
+quick_fix.py
+fix_*.py
+setup_*.py
+repair_*.py
+
+# ✅ DEPLOYMENT Y PRODUCCIÓN
+deployment/ssl/
+deployment/logs/
+*.pid
+gunicorn.conf.py
+
+# ✅ MONITOREO Y MÉTRICAS
+*.prof
+.profiling/
+
+# ✅ ARCHIVOS GRANDES (por si tienes datasets)
+*.csv
+*.xlsx
+*.json
+!requirements.txt
+!package.json
+
+# ✅ ARCHIVOS DE CONFIGURACIÓN LOCAL
+local_config.py
+my_settings.py

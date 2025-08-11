@@ -7,7 +7,10 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 from django.contrib.auth.decorators import login_required
 from django.db.models import Count, Q
+import re
 from datetime import datetime, timedelta
+from django.http import HttpResponse, Http404
+from django.shortcuts import get_object_or_404
 import json
 import logging
 
@@ -593,32 +596,124 @@ class PublicHistoryView(View):
 
 # ✅ FUNCIÓN DE DESCARGA MEJORADA
 def download_pdf(request, analysis_id):
-    """Descarga PDF con mejor manejo de errores"""
+    """
+    Descarga PDF de análisis con manejo de errores mejorado
+    """
     try:
-        analysis = AnalysisHistory.objects.get(id=analysis_id)
+        # ✅ BUSCAR EL ANÁLISIS
+        analysis = get_object_or_404(AnalysisHistory, id=analysis_id)
         
-        # Verificar permisos
-        if analysis.user and analysis.user != request.user and not request.user.is_superuser:
-            return JsonResponse({'error': 'Sin permisos para descargar este análisis'}, status=403)
+        # ✅ VERIFICAR PERMISOS (opcional)
+        if (analysis.user and 
+            request.user != analysis.user and 
+            not request.user.is_superuser and
+            not request.user.is_staff):
+            
+            logger.warning(f"Intento de acceso no autorizado al PDF {analysis_id} por {request.user}")
+            raise Http404("Análisis no encontrado")
         
-        pdf_buffer = generate_strategy_pdf(analysis)
+        # ✅ IMPORTAR EL GENERADOR PDF
+        try:
+            from .utils.pdf_generator import generate_strategy_pdf
+        except ImportError:
+            logger.error("No se pudo importar generate_strategy_pdf")
+            return HttpResponse(
+                "Error: Generador de PDF no disponible", 
+                status=500,
+                content_type='text/plain'
+            )
         
-        filename = f"estrategia_{analysis.product_title[:30].replace(' ', '_')}_{analysis.id}.pdf"
+        # ✅ GENERAR PDF
+        logger.info(f"Generando PDF para análisis {analysis_id}")
         
-        response = FileResponse(
-            pdf_buffer,
-            as_attachment=True,
-            filename=filename,
+        try:
+            pdf_content = generate_strategy_pdf(analysis)
+        except Exception as pdf_error:
+            logger.error(f"Error generando PDF: {str(pdf_error)}")
+            return HttpResponse(
+                f"Error generando PDF: {str(pdf_error)}", 
+                status=500,
+                content_type='text/plain'
+            )
+        
+        # ✅ VERIFICAR QUE SE GENERÓ CONTENIDO
+        if not pdf_content:
+            logger.error(f"PDF vacío para análisis {analysis_id}")
+            return HttpResponse(
+                "Error: PDF vacío generado", 
+                status=500,
+                content_type='text/plain'
+            )
+        
+        # ✅ CREAR NOMBRE DE ARCHIVO SEGURO
+        safe_title = re.sub(r'[^\w\s-]', '', analysis.product_title or 'estrategia')
+        safe_title = re.sub(r'[-\s]+', '_', safe_title)[:30]
+        filename = f"estrategia_{safe_title}_{analysis_id}.pdf"
+        
+        # ✅ CREAR RESPUESTA HTTP
+        response = HttpResponse(
+            pdf_content,
             content_type='application/pdf'
         )
-        
-        # Headers adicionales
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Length'] = len(pdf_content)
         
+        logger.info(f"PDF descargado exitosamente: {filename}")
         return response
         
     except AnalysisHistory.DoesNotExist:
-        return JsonResponse({'error': 'Análisis no encontrado'}, status=404)
+        logger.warning(f"Análisis {analysis_id} no encontrado")
+        raise Http404("Análisis no encontrado")
+        
     except Exception as e:
-        logger.error(f"PDF download error: {str(e)}")
-        return JsonResponse({'error': 'Error al generar PDF'}, status=500)
+        logger.error(f"Error inesperado en download_pdf: {str(e)}", exc_info=True)
+        return HttpResponse(
+            f"Error inesperado: {str(e)}", 
+            status=500,
+            content_type='text/plain'
+        )
+
+
+def test_pdf(request):
+    """Vista de prueba para verificar que el PDF funciona"""
+    try:
+        from .utils.pdf_generator import generate_strategy_pdf
+        
+        # Crear análisis de prueba
+        class MockAnalysis:
+            def __init__(self):
+                self.id = "test-id"
+                self.product_title = "Producto de Prueba PDF"
+                self.product_price = "$99.99"
+                self.platform = "tiktok"
+                self.target_audience = "jóvenes 18-25 años"
+                self.analysis_type = "basic"
+                self.ai_response = """Esta es una estrategia de prueba para verificar el PDF.
+
+## Análisis del Producto
+Este producto resuelve el problema de X y tiene gran potencial.
+
+## Estrategia de Contenido
+- Video corto mostrando beneficios
+- Posts en redes sociales
+- Testimonios de usuarios
+
+## Call to Action
+¡Compra ahora con descuento especial!
+
+**Hashtags recomendados:** #test #marketing #afiliados"""
+                self.created_at = datetime.now()
+            
+            def get_platform_display(self):
+                return "TikTok"
+        
+        mock_analysis = MockAnalysis()
+        pdf_content = generate_strategy_pdf(mock_analysis)
+        
+        response = HttpResponse(pdf_content, content_type='application/pdf')
+        response['Content-Disposition'] = 'attachment; filename="test_estrategia.pdf"'
+        
+        return response
+        
+    except Exception as e:
+        return HttpResponse(f"Error en test PDF: {str(e)}", status=500)
