@@ -257,35 +257,105 @@ class ProfileView(View):
         return render(request, 'analyzer/auth/profile.html', context)
 
 
+# analyzer/views_auth.py - REEMPLAZAR la clase UpgradeView
+
 class UpgradeView(View):
-    """
-    Vista de planes (preparada para futuro)
-    """
+    """Vista de planes con funcionalidad real"""
+    
     def get(self, request):
+        user_plan = 'free'
+        if request.user.is_authenticated and hasattr(request.user, 'profile'):
+            user_plan = request.user.profile.plan
+        
         plans = [
             {
+                'id': 'free',
                 'name': 'Gratuito',
                 'price': 0,
+                'price_display': 'Gratis',
                 'features': [
-                    'Análisis básicos ilimitados',
-                    'Análisis competitivo',
-                    'Exportación PDF',
-                    'Plantillas incluidas'
+                    '✅ 5 análisis básicos por mes',
+                    '✅ Descarga en PDF',
+                    '✅ Historial de análisis',
+                    '❌ Sin análisis competitivos',
+                    '❌ Sin plantillas premium',
+                    '❌ Sin soporte prioritario'
                 ],
-                'current': True
+                'current': user_plan == 'free',
+                'button_text': 'Plan Actual' if user_plan == 'free' else 'Cambiar a Gratis',
+                'button_class': 'btn-secondary' if user_plan == 'free' else 'btn-outline-secondary'
             },
             {
+                'id': 'pro',
                 'name': 'Profesional',
-                'price': 29,
+                'price': 19,
+                'price_display': '$19/mes',
                 'features': [
-                    'Todo lo del plan gratuito',
-                    'Análisis avanzados con IA',
-                    'Templates premium',
-                    'Soporte prioritario',
-                    'Análisis en lote'
+                    '✅ 100 análisis por mes',
+                    '✅ Análisis competitivos ilimitados',
+                    '✅ Todas las plantillas premium',
+                    '✅ Exportación en Excel',
+                    '✅ Soporte prioritario',
+                    '✅ Sin marca de agua en PDFs'
                 ],
-                'coming_soon': True
+                'current': user_plan == 'pro',
+                'recommended': True,
+                'button_text': 'Plan Actual' if user_plan == 'pro' else 'Actualizar a Pro',
+                'button_class': 'btn-primary' if user_plan != 'pro' else 'btn-secondary'
+            },
+            {
+                'id': 'premium',
+                'name': 'Premium',
+                'price': 49,
+                'price_display': '$49/mes',
+                'features': [
+                    '✅ Análisis ILIMITADOS',
+                    '✅ Todas las funciones Pro',
+                    '✅ API Access',
+                    '✅ Análisis en lote',
+                    '✅ White label',
+                    '✅ Soporte 24/7',
+                    '✅ Entrenamiento personalizado'
+                ],
+                'current': user_plan == 'premium',
+                'button_text': 'Plan Actual' if user_plan == 'premium' else 'Actualizar a Premium',
+                'button_class': 'btn-warning' if user_plan != 'premium' else 'btn-secondary'
             }
         ]
         
-        return render(request, 'analyzer/auth/upgrade.html', {'plans': plans})
+        context = {
+            'plans': plans,
+            'current_plan': user_plan,
+            'is_authenticated': request.user.is_authenticated
+        }
+        
+        if request.user.is_authenticated:
+            profile = request.user.profile
+            context.update({
+                'analyses_used': profile.analyses_this_month,
+                'analyses_limit': profile.analyses_limit_monthly,
+                'analyses_remaining': profile.analyses_remaining
+            })
+        
+        return render(request, 'analyzer/auth/upgrade.html', context)
+    
+    def post(self, request):
+        """Procesar cambio de plan (aquí integrarías Stripe/PayPal)"""
+        if not request.user.is_authenticated:
+            return JsonResponse({'error': 'Debes iniciar sesión'}, status=401)
+        
+        new_plan = request.POST.get('plan')
+        
+        # Por ahora, cambio directo (aquí iría el proceso de pago)
+        if new_plan in ['pro', 'premium']:
+            # Aquí integrarías Stripe/PayPal
+            # Por ahora, simulamos upgrade gratuito para testing
+            request.user.profile.upgrade_plan(new_plan, 30)
+            
+            return JsonResponse({
+                'success': True,
+                'message': f'¡Actualizado a plan {new_plan.title()}!',
+                'redirect': '/profile/'
+            })
+        
+        return JsonResponse({'error': 'Plan no válido'}, status=400)

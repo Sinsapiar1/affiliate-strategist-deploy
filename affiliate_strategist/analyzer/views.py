@@ -1,4 +1,4 @@
-# analyzer/views.py - VERSIÓN MEJORADA Y ROBUSTA
+# analyzer/views.py - VERSIÓN CON LÍMITES DE USUARIOS IMPLEMENTADOS
 
 from django.shortcuts import render
 from django.views import View
@@ -48,13 +48,24 @@ class AffiliateStrategistView(View):
                 'is_authenticated': request.user.is_authenticated,
             }
             
-            # ✅ Si está autenticado, agregar estadísticas personales
+            # ✅ Si está autenticado, agregar estadísticas personales y límites
             if request.user.is_authenticated:
                 user_analyses = AnalysisHistory.objects.filter(user=request.user)
+                
+                # 🆕 NUEVO: Obtener información del perfil y límites
+                profile = request.user.profile
+                profile.reset_monthly_counter_if_needed()  # Reset si es necesario
+                
                 context.update({
                     'user_total_analyses': user_analyses.count(),
                     'user_successful_analyses': user_analyses.filter(success=True).count(),
                     'user_recent_analyses': user_analyses.order_by('-created_at')[:3],
+                    # 🆕 NUEVO: Agregar información de límites
+                    'user_plan': profile.plan,
+                    'analyses_this_month': profile.analyses_this_month,
+                    'analyses_limit': profile.analyses_limit_monthly,
+                    'analyses_remaining': profile.analyses_remaining,
+                    'can_analyze': profile.can_analyze(),
                 })
             
             # ✅ ESTADÍSTICAS GENERALES
@@ -85,7 +96,7 @@ class AffiliateStrategistView(View):
             })
     
     def post(self, request):
-        """Manejo robusto de análisis"""
+        """Manejo robusto de análisis con verificación de límites"""
         try:
             # ✅ VALIDAR CSRF TOKEN
             if not request.META.get('HTTP_X_CSRFTOKEN') and 'csrfmiddlewaretoken' not in request.POST:
@@ -93,6 +104,46 @@ class AffiliateStrategistView(View):
                     'success': False,
                     'error': 'Token CSRF faltante'
                 }, status=403)
+            
+            # 🆕 NUEVO: VERIFICACIÓN DE LÍMITES DE USUARIO
+            if request.user.is_authenticated:
+                profile = request.user.profile
+                profile.reset_monthly_counter_if_needed()  # Asegurar que el contador esté actualizado
+                
+                # Verificar si puede hacer más análisis
+                if not profile.can_analyze():
+                    plan_details = profile.get_plan_details()
+                    
+                    return JsonResponse({
+                        'success': False,
+                        'error': f'Has alcanzado el límite de {plan_details["monthly_limit"]} análisis mensuales para el plan {plan_details["name"]}.',
+                        'limit_reached': True,
+                        'analyses_used': profile.analyses_this_month,
+                        'analyses_limit': profile.analyses_limit_monthly,
+                        'analyses_remaining': 0,
+                        'upgrade_url': '/upgrade/',
+                        'message': '¡Actualiza a un plan superior para obtener más análisis!',
+                        'current_plan': profile.plan
+                    })
+            else:
+                # 🆕 NUEVO: Límites para usuarios no autenticados
+                from django.core.cache import cache
+                ip = request.META.get('REMOTE_ADDR', 'unknown')
+                cache_key = f'anon_limit_{ip}'
+                count = cache.get(cache_key, 0)
+                
+                if count >= 2:  # Solo 2 análisis diarios para anónimos
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Has alcanzado el límite diario de 2 análisis gratuitos.',
+                        'limit_reached': True,
+                        'register_url': '/register/',
+                        'message': '¡Crea una cuenta gratuita y obtén 5 análisis al mes!',
+                        'is_anonymous': True
+                    })
+                
+                # Incrementar contador para anónimos
+                cache.set(cache_key, count + 1, 86400)  # 24 horas
             
             # ✅ DETERMINAR TIPO DE ANÁLISIS
             analysis_type = request.POST.get('analysis_type', 'basic').lower()
@@ -151,13 +202,23 @@ class AffiliateStrategistView(View):
             # ✅ GUARDAR EN BD CON MANEJO DE ERRORES
             analysis = self.save_analysis(request.user, product_info['data'], data, 'basic', ai_response['response'])
             
-            # ✅ RESPUESTA EXITOSA
+            # 🆕 NUEVO: INCREMENTAR CONTADOR DE ANÁLISIS
+            if request.user.is_authenticated:
+                request.user.profile.increment_analysis_count()
+                analyses_remaining = request.user.profile.analyses_remaining
+            else:
+                analyses_remaining = None
+            
+            # ✅ RESPUESTA EXITOSA CON INFO DE LÍMITES
             return JsonResponse({
                 'success': True,
                 'analysis_id': analysis.id,
                 'response': ai_response['response'],
                 'product': product_info['data'],
-                'message': '¡Análisis completado exitosamente!'
+                'message': '¡Análisis completado exitosamente!',
+                # 🆕 NUEVO: Información de límites en la respuesta
+                'analyses_remaining': analyses_remaining,
+                'show_limit_warning': analyses_remaining is not None and analyses_remaining <= 2
             })
             
         except Exception as e:
@@ -170,6 +231,17 @@ class AffiliateStrategistView(View):
     def competitive_analysis(self, request):
         """Análisis competitivo mejorado"""
         try:
+            # 🆕 NUEVO: Verificar si el plan permite análisis competitivos
+            if request.user.is_authenticated:
+                if request.user.profile.plan == 'free':
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Los análisis competitivos solo están disponibles para planes Pro y Premium.',
+                        'feature_locked': True,
+                        'upgrade_url': '/upgrade/',
+                        'message': '¡Actualiza a Pro para desbloquear análisis competitivos!'
+                    })
+            
             # ✅ EXTRAER DATOS
             data = self.extract_form_data(request, 'competitive')
             validation_error = self.validate_competitive_data(data)
@@ -226,13 +298,23 @@ class AffiliateStrategistView(View):
                 }
             )
             
+            # 🆕 NUEVO: INCREMENTAR CONTADOR DE ANÁLISIS
+            if request.user.is_authenticated:
+                request.user.profile.increment_analysis_count()
+                analyses_remaining = request.user.profile.analyses_remaining
+            else:
+                analyses_remaining = None
+            
             return JsonResponse({
                 'success': True,
                 'analysis_id': analysis.id,
                 'response': ai_response['response'],
                 'main_product': main_product['data'],
                 'competitors_analyzed': len(competitors_data),
-                'pricing_analysis': price_analysis
+                'pricing_analysis': price_analysis,
+                # 🆕 NUEVO: Información de límites
+                'analyses_remaining': analyses_remaining,
+                'show_limit_warning': analyses_remaining is not None and analyses_remaining <= 2
             })
             
         except Exception as e:
@@ -242,7 +324,7 @@ class AffiliateStrategistView(View):
                 'error': 'Error en análisis competitivo. Intenta nuevamente.'
             }, status=500)
     
-    # ✅ MÉTODOS AUXILIARES
+    # ✅ MÉTODOS AUXILIARES (Sin cambios en estos métodos)
     
     def extract_form_data(self, request, analysis_type):
         """Extrae datos del formulario de forma segura"""
@@ -313,9 +395,6 @@ class AffiliateStrategistView(View):
         except Exception as e:
             logger.error(f"AI call error: {str(e)}")
             return {'success': False, 'error': 'Error en la generación con IA. Verifica tu API Key.'}
-    
-    
-    
     
     def analyze_pricing(self, main_product, competitors_data):
         """Análisis inteligente de precios"""
@@ -516,7 +595,7 @@ class AffiliateStrategistView(View):
             return []
 
 
-# ✅ VISTAS DE HISTORIAL MEJORADAS
+# ✅ VISTAS DE HISTORIAL MEJORADAS (Sin cambios)
 class UserHistoryView(View):
     """Vista de historial mejorada"""
     
@@ -594,7 +673,7 @@ class PublicHistoryView(View):
         return render(request, 'analyzer/public_history.html', context)
 
 
-# ✅ FUNCIÓN DE DESCARGA MEJORADA
+# ✅ FUNCIÓN DE DESCARGA MEJORADA (Sin cambios)
 def download_pdf(request, analysis_id):
     """
     Descarga PDF de análisis con manejo de errores mejorado

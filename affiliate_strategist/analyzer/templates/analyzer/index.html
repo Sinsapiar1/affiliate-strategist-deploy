@@ -121,6 +121,43 @@
             </div>
         </div>
 
+        <!-- AGREGAR después del header, antes del main-card -->
+
+        {% if user.is_authenticated %}
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="alert {% if user.profile.analyses_remaining <= 1 %}alert-warning{% else %}alert-info{% endif %} d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>
+                            {{ user.profile.get_plan_display_with_emoji }} 
+                            - Análisis este mes: {{ user.profile.analyses_this_month }}/{{ user.profile.analyses_limit_monthly }}
+                        </strong>
+                        {% if user.profile.analyses_remaining == 0 %}
+                            <span class="text-danger ms-3">¡Has alcanzado tu límite mensual!</span>
+                        {% elif user.profile.analyses_remaining <= 2 %}
+                            <span class="text-warning ms-3">Te quedan {{ user.profile.analyses_remaining }} análisis</span>
+                        {% endif %}
+                    </div>
+                    {% if user.profile.plan == 'free' %}
+                    <a href="/upgrade/" class="btn btn-sm btn-warning">
+                        <i class="fas fa-crown me-1"></i>Obtener Pro
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Como visitante tienes 2 análisis gratuitos por día. 
+                    <a href="/register/" class="alert-link">Regístrate gratis</a> para obtener 5 análisis mensuales.
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- ✅ MAIN CONTENT -->
         <div class="row justify-content-center">
             <div class="col-lg-10">
@@ -703,31 +740,54 @@ function handleFormSubmit(form, e) {
         }
     })
     .then(response => response.json())
+    // En la sección de JavaScript, modificar el manejo de respuestas:
+
     .then(data => {
         showLoading(false);
         
         if (data.success) {
             showAlert('¡Análisis completado exitosamente!', 'success');
-            
-            // Guardar resultado según el tipo
-            if (analysisType === 'competitive') {
-                analysisResults.competitive = data;
-            } else {
-                analysisResults.basic = data;
-            }
-            
-            // Mostrar tabs si hay múltiples resultados
-            updateResultsTabs();
-            
-            // Mostrar el resultado actual
-            displayResult(analysisType, data);
-            
-            resultsSection.style.display = 'block';
-            resultsSection.scrollIntoView({ behavior: 'smooth' });
+            // ... código existente ...
         } else {
-            showAlert(data.error || 'Error al procesar el análisis');
+            // ✅ MANEJO ESPECIAL PARA LÍMITES
+            if (data.limit_reached) {
+                let limitMessage = data.error;
+                
+                if (data.upgrade_url) {
+                    limitMessage += `
+                        <div class="mt-3">
+                            <a href="${data.upgrade_url}" class="btn btn-warning btn-sm">
+                                <i class="fas fa-crown me-2"></i>Actualizar Plan
+                            </a>
+                        </div>
+                    `;
+                } else if (data.register_url) {
+                    limitMessage += `
+                        <div class="mt-3">
+                            <a href="${data.register_url}" class="btn btn-success btn-sm me-2">
+                                Registrarse Gratis
+                            </a>
+                            <a href="/login/" class="btn btn-outline-primary btn-sm">
+                                Iniciar Sesión
+                            </a>
+                        </div>
+                    `;
+                }
+                
+                showAlert(limitMessage, 'warning');
+                
+                // Actualizar contador en la página si existe
+                if (data.analyses_used !== undefined) {
+                    const counterElement = document.querySelector('.analyses-counter');
+                    if (counterElement) {
+                        counterElement.textContent = `${data.analyses_used}/${data.analyses_limit}`;
+                    }
+                }
+            } else {
+                showAlert(data.error || 'Error al procesar el análisis');
+            }
         }
-    })
+})
     .catch(error => {
         showLoading(false);
         console.error('Error:', error);
