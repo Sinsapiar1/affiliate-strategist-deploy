@@ -2,7 +2,7 @@
 
 from django.db import models
 from django.contrib.auth.models import User
-from django.utils import timezone
+from django.utils import timezone as django_timezone  # 👈 ALIAS PARA EVITAR CONFLICTO
 from django.core.validators import MinValueValidator, MaxValueValidator
 from datetime import datetime, timedelta
 import json
@@ -96,7 +96,6 @@ class AnalysisHistory(models.Model):
     # ✅ TIMESTAMPS
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_reset_date = models.DateField(default=timezone.now, help_text='Fecha del último reset del contador mensual')
     
     # ✅ COMPARTIR Y PRIVACIDAD
     is_public = models.BooleanField(default=False)
@@ -113,32 +112,6 @@ class AnalysisHistory(models.Model):
         ]
         verbose_name = 'Análisis'
         verbose_name_plural = 'Análisis'
-        
-
-    def reset_monthly_counter_if_needed(self):
-        """Resetea el contador mensual si ha pasado un mes"""
-        from django.utils import timezone
-        
-        now = timezone.now()
-        
-        if not hasattr(self, 'last_reset_date') or not self.last_reset_date:
-            self.last_reset_date = self.created_at.date() if self.created_at else now.date()
-            self.save(update_fields=['last_reset_date'])
-            return
-        
-        if (now.year > self.last_reset_date.year or 
-            (now.year == self.last_reset_date.year and now.month > self.last_reset_date.month)):
-            
-            self.analyses_this_month = 0
-            self.last_reset_date = now.date()
-            self.save(update_fields=['analyses_this_month', 'last_reset_date'])
-
-    def add_analysis_count(self):
-        """Incrementa el contador de análisis del mes"""
-        self.reset_monthly_counter_if_needed()
-        self.analyses_this_month += 1
-        self.total_analyses += 1
-        self.save(update_fields=['analyses_this_month', 'total_analyses'])
     
     def __str__(self):
         return f"{self.product_title} - {self.analysis_type} ({self.created_at.date()})"
@@ -151,12 +124,12 @@ class AnalysisHistory(models.Model):
     @property
     def is_recent(self):
         """Verifica si el análisis es reciente (últimas 24 horas)"""
-        return self.created_at >= timezone.now() - timedelta(hours=24)
+        return self.created_at >= django_timezone.now() - timedelta(hours=24)
     
     @property
     def age_in_days(self):
         """Edad del análisis en días"""
-        return (timezone.now() - self.created_at).days
+        return (django_timezone.now() - self.created_at).days
     
     def get_share_url(self):
         """URL para compartir el análisis"""
@@ -205,7 +178,6 @@ class MarketingTemplate(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_reset_date = models.DateField(default=timezone.now, help_text='Fecha del último reset del contador mensual')
     
     class Meta:
         ordering = ['-success_rate', '-times_used']
@@ -245,13 +217,16 @@ class UserProfile(models.Model):
     
     # ✅ UBICACIÓN
     country = models.CharField(max_length=100, blank=True, null=True)
-    timezone = models.CharField(max_length=50, default='UTC')
+    timezone = models.CharField(max_length=50, default='UTC')  # Campo timezone como CharField
     
     # ✅ PLAN Y LÍMITES
     plan = models.CharField(max_length=20, choices=PLAN_CHOICES, default='free')
     plan_expires = models.DateTimeField(null=True, blank=True)
     analyses_limit_monthly = models.PositiveIntegerField(default=5)
     analyses_this_month = models.PositiveIntegerField(default=0)
+    
+    # ✅ UN SOLO last_reset_date - USANDO EL ALIAS
+    last_reset_date = models.DateField(default=django_timezone.now)
     
     # ✅ PREFERENCIAS
     preferred_platforms = models.JSONField(default=list, blank=True)
@@ -270,20 +245,15 @@ class UserProfile(models.Model):
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    last_reset_date = models.DateField(default=timezone.now, help_text='Fecha del último reset del contador mensual')
     
     class Meta:
         indexes = [
             models.Index(fields=['plan', 'plan_expires']),
             models.Index(fields=['points', 'level']),
         ]
-    def reset_monthly_counter_if_needed(self):
-     """Método temporal - previene errores"""
-    pass
     
     def __str__(self):
         return f"{self.user.username} - {self.get_plan_display()}"
-    
     
     def get_plan_display_with_emoji(self):
         """Retorna el plan con emoji"""
@@ -342,25 +312,18 @@ class UserProfile(models.Model):
         self.analyses_limit_monthly = plan_limits.get(new_plan, 5)
         
         if new_plan != 'free':
-            self.plan_expires = timezone.now() + timedelta(days=duration_days)
+            self.plan_expires = django_timezone.now() + timedelta(days=duration_days)
         else:
             self.plan_expires = None
         
         self.save()
-
-    # ✅ AGREGAR ESTOS NUEVOS MÉTODOS:
-        
+    
     def reset_monthly_counter_if_needed(self):
-        """
-        Resetea el contador mensual si ha pasado un mes
-        """
-        from django.utils import timezone
-        from datetime import datetime
-        
-        now = timezone.now()
+        """Resetea el contador mensual si ha pasado un mes"""
+        now = django_timezone.now()
         
         # Si no hay fecha de último reset, usar la fecha de creación
-        if not hasattr(self, 'last_reset_date') or not self.last_reset_date:
+        if not self.last_reset_date:
             self.last_reset_date = self.created_at.date() if self.created_at else now.date()
             self.save(update_fields=['last_reset_date'])
             return
@@ -374,67 +337,75 @@ class UserProfile(models.Model):
             self.save(update_fields=['analyses_this_month', 'last_reset_date'])
             
             print(f"💫 Contador mensual reseteado para usuario {self.user.username}")
-
+    
     def add_analysis_count(self):
-        """
-        Incrementa el contador de análisis del mes
-        """
+        """Incrementa el contador de análisis del mes"""
         self.reset_monthly_counter_if_needed()
         self.analyses_this_month += 1
         self.total_analyses += 1
         self.save(update_fields=['analyses_this_month', 'total_analyses'])
     
-        def increment_analysis_count(self):
-            """Incrementa el contador de análisis del mes"""
-            self.reset_monthly_counter_if_needed()
-            self.analyses_this_month += 1
-            self.total_analyses += 1
-            self.save(update_fields=['analyses_this_month', 'total_analyses'])
-        
-        def get_plan_details(self):
-            """Retorna detalles completos del plan"""
-            plans = {
-                'free': {
-                    'name': 'Gratuito',
-                    'emoji': '🆓',
-                    'monthly_limit': 5,
-                    'features': [
-                        '5 análisis básicos por mes',
-                        'Descarga de PDF',
-                        'Historial básico'
-                    ],
-                    'restrictions': [
-                        'Sin análisis competitivos',
-                        'Sin prioridad en procesamiento',
-                        'Sin soporte premium'
-                    ]
-                },
-                'pro': {
-                    'name': 'Profesional',
-                    'emoji': '⭐',
-                    'monthly_limit': 100,
-                    'features': [
-                        '100 análisis por mes',
-                        'Análisis competitivos ilimitados',
-                        'Plantillas premium',
-                        'Soporte prioritario'
-                    ],
-                    'restrictions': []
-                },
-                'premium': {
-                    'name': 'Premium',
-                    'emoji': '💎',
-                    'monthly_limit': 999999,  # Ilimitado
-                    'features': [
-                        'Análisis ILIMITADOS',
-                        'Todas las funcionalidades',
-                        'API Access',
-                        'Soporte 24/7'
-                    ],
-                    'restrictions': []
-                }
+    def increment_analysis_count(self):
+        """Incrementa el contador de análisis del mes (alias)"""
+        self.add_analysis_count()
+    
+    def get_plan_details(self):
+        """Retorna detalles completos del plan"""
+        plans = {
+            'free': {
+                'name': 'Gratuito',
+                'emoji': '🆓',
+                'monthly_limit': 5,
+                'features': [
+                    '5 análisis básicos por mes',
+                    'Descarga de PDF',
+                    'Historial básico'
+                ],
+                'restrictions': [
+                    'Sin análisis competitivos',
+                    'Sin prioridad en procesamiento',
+                    'Sin soporte premium'
+                ]
+            },
+            'pro': {
+                'name': 'Profesional',
+                'emoji': '⭐',
+                'monthly_limit': 100,
+                'features': [
+                    '100 análisis por mes',
+                    'Análisis competitivos ilimitados',
+                    'Plantillas premium',
+                    'Soporte prioritario'
+                ],
+                'restrictions': []
+            },
+            'premium': {
+                'name': 'Premium',
+                'emoji': '💎',
+                'monthly_limit': 999999,  # Ilimitado
+                'features': [
+                    'Análisis ILIMITADOS',
+                    'Todas las funcionalidades',
+                    'API Access',
+                    'Soporte 24/7'
+                ],
+                'restrictions': []
+            },
+            'enterprise': {
+                'name': 'Empresarial',
+                'emoji': '🏢',
+                'monthly_limit': 999999,
+                'features': [
+                    'Todo lo de Premium',
+                    'Soporte dedicado',
+                    'Personalización completa',
+                    'SLA garantizado'
+                ],
+                'restrictions': []
             }
-            return plans.get(self.plan, plans['free'])
+        }
+        return plans.get(self.plan, plans['free'])
+
 
 # ✅ SISTEMA DE FEEDBACK Y RATING
 class AnalysisFeedback(models.Model):
@@ -526,7 +497,7 @@ class Notification(models.Model):
         """Marca como leída"""
         if not self.is_read:
             self.is_read = True
-            self.read_at = timezone.now()
+            self.read_at = django_timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
 
 
