@@ -117,7 +117,7 @@ from pathlib import Path
 # Configurar Django
 BASE_DIR = Path(__file__).resolve().parent.parent
 sys.path.append(str(BASE_DIR))
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'affiliate_strategist.settings')
 django.setup()
 
 from analyzer.models import AnalysisHistory, MarketingTemplate

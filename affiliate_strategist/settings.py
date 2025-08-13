@@ -53,7 +53,7 @@ MIDDLEWARE = [
     # 'corsheaders.middleware.CorsMiddleware',  # Si necesitas CORS
 ]
 
-ROOT_URLCONF = 'config.urls'
+ROOT_URLCONF = 'affiliate_strategist.urls'
 
 # ✅ TEMPLATES MEJORADOS
 TEMPLATES = [
@@ -76,7 +76,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'config.wsgi.application'
+WSGI_APPLICATION = 'affiliate_strategist.wsgi.application'
 
 # ✅ BASE DE DATOS CON CONFIGURACIÓN MEJORADA
 DATABASES = {
