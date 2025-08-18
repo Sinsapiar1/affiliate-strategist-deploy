@@ -1,1 +1,1 @@
-# Analyzer app initialization
+﻿# Analyzer app initialization
