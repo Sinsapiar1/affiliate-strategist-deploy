@@ -13,11 +13,20 @@ DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
 
 # ✅ HOSTS PERMITIDOS
 ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    # Agregar tu dominio en producción
+    ['localhost', '127.0.0.1', '.railway.app']
+
+# AGREGAR ESTO:
+CSRF_TRUSTED_ORIGINS = [
+    'https://*.railway.app',
+    'https://web-production-6bf8c.up.railway.app',
 ]
+
+# También asegúrate de tener:
+if os.environ.get('PRODUCTION'):
+    SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+    SECURE_SSL_REDIRECT = False  # Railway maneja SSL
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
 
 # ✅ APLICACIONES
 DJANGO_APPS = [
