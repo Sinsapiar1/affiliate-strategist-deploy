@@ -245,11 +245,9 @@ class ProfileView(View):
         # ✅ Estadísticas del usuario
         from .models import AnalysisHistory
         try:
-            user_analyses = AnalysisHistory.objects.filter(
-                user=request.user if hasattr(AnalysisHistory, 'user') else None
-            ).order_by('-created_at')[:5]
-            total_analyses = user_analyses.count() if user_analyses else 0
-        except:
+            total_analyses = AnalysisHistory.objects.filter(user=request.user).count()
+            user_analyses = AnalysisHistory.objects.filter(user=request.user).order_by('-created_at')[:5]
+        except Exception:
             user_analyses = []
             total_analyses = 0
         

@@ -16,7 +16,7 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
-    # Agregar tu dominio en producción
+    '.railway.app',  # Permite subdominios de Railway en producción
 ]
 
 # ✅ APLICACIONES
@@ -169,8 +169,14 @@ CSRF_COOKIE_HTTPONLY = True
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
-    # Agregar tu dominio en producción: 'https://tudominio.com'
+    'https://*.railway.app',  # Confianza para dominios de Railway en HTTPS
 ]
+
+# ✅ DETRÁS DE PROXY (Railway)
+# Asegura que Django reconozca correctamente las peticiones HTTPS detrás del proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# Railway ya maneja el redireccionamiento a HTTPS
+SECURE_SSL_REDIRECT = False
 
 # ✅ CONFIGURACIÓN DE SEGURIDAD
 if not DEBUG:
