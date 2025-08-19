@@ -62,6 +62,7 @@ class RateLimitMiddleware:
         ip = self.get_client_ip(request)
         # Clave por día para reiniciar automáticamente a medianoche
         from datetime import datetime
+        # Usar UTC para consistencia
         day_key = datetime.utcnow().strftime('%Y%m%d')
         user_key = f"rate_limit:{ip}:{day_key}"
         

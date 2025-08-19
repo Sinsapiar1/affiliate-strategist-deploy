@@ -42,6 +42,12 @@ def home(request):
                 UserProfile.objects.get_or_create(user=request.user)
             except Exception:
                 pass
+        # Asegurar reset mensual antes de evaluar límite
+        if hasattr(request.user, 'profile'):
+            try:
+                request.user.profile.reset_monthly_counter_if_needed()
+            except Exception:
+                pass
         if hasattr(request.user, 'profile') and not request.user.profile.can_analyze():
             return JsonResponse({
                 'success': False,
@@ -85,7 +91,10 @@ def home(request):
 
         # Actualizar contadores si aplica
         if request.user.is_authenticated and hasattr(request.user, 'profile'):
-            request.user.profile.add_analysis_count()
+            try:
+                request.user.profile.add_analysis_count()
+            except Exception:
+                pass
 
         return JsonResponse({
             'success': True,

@@ -9,6 +9,10 @@ def create_user_profile(sender, instance, created, **kwargs):
     if created:
         try:
             UserProfile.objects.create(user=instance)
+            # Inicializar límites por plan free
+            instance.profile.analyses_limit_monthly = 5
+            instance.profile.analyses_this_month = 0
+            instance.profile.save(update_fields=['analyses_limit_monthly', 'analyses_this_month'])
         except Exception:
             pass
 
