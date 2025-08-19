@@ -46,34 +46,34 @@ class RateLimitMiddleware:
         self.get_response = get_response
     
     def __call__(self, request):
-        # Solo aplicar rate limiting a análisis
+        # Solo aplicar rate limiting a análisis para usuarios anónimos
         if request.path == '/' and request.method == 'POST':
-            if not self.check_rate_limit(request):
-                return JsonResponse({
-                    'success': False,
-                    'error': 'Demasiadas peticiones. Intenta en unos minutos.'
-                }, status=429)
+            if isinstance(request.user, AnonymousUser):
+                if not self.check_rate_limit(request):
+                    return JsonResponse({
+                        'success': False,
+                        'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.'
+                    }, status=429)
         
         return self.get_response(request)
     
     def check_rate_limit(self, request):
         """Verifica límites de peticiones"""
         ip = self.get_client_ip(request)
-        user_key = f"rate_limit_{ip}"
+        # Clave por día para reiniciar automáticamente a medianoche
+        from datetime import datetime
+        day_key = datetime.utcnow().strftime('%Y%m%d')
+        user_key = f"rate_limit:{ip}:{day_key}"
         
-        # Límite: 10 análisis por hora para IPs anónimas
+        # Límite: 2 análisis por día para anónimos. Usuarios autenticados se gestionan por plan mensual.
         requests_count = cache.get(user_key, 0)
-        
-        if isinstance(request.user, AnonymousUser):
-            limit = 10
-        else:
-            limit = 50  # Usuarios registrados tienen más límite
+        limit = 2
         
         if requests_count >= limit:
             return False
         
-        # Incrementar contador
-        cache.set(user_key, requests_count + 1, 3600)  # 1 hora
+        # TTL hasta 24h
+        cache.set(user_key, requests_count + 1, 86400)
         return True
     
     def get_client_ip(self, request):

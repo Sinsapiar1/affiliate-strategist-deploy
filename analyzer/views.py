@@ -26,9 +26,16 @@ def home(request):
     if not product_url or not api_key:
         return JsonResponse({'success': False, 'error': 'Faltan datos: URL del producto y API key son obligatorias.'}, status=400)
 
-    # Lógica de límites: permitir invitados; si autenticado y tiene perfil, respetar límites
-    if request.user.is_authenticated and hasattr(request.user, 'profile'):
-        if not request.user.profile.can_analyze():
+    # Lógica de límites: anónimo -> limitado por IP (middleware); autenticado -> por plan mensual
+    if request.user.is_authenticated:
+        # Garantiza que exista perfil
+        if not hasattr(request.user, 'profile'):
+            try:
+                from .models import UserProfile
+                UserProfile.objects.get_or_create(user=request.user)
+            except Exception:
+                pass
+        if hasattr(request.user, 'profile') and not request.user.profile.can_analyze():
             return JsonResponse({
                 'success': False,
                 'limit_reached': True,
