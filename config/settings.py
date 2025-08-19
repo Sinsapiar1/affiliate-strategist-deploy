@@ -107,21 +107,6 @@ else:
         }
     }
 
-# ✅ Para PostgreSQL en producción:
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.getenv('DB_NAME', 'affiliate_strategist'),
-#         'USER': os.getenv('DB_USER', 'postgres'),
-#         'PASSWORD': os.getenv('DB_PASSWORD', ''),
-#         'HOST': os.getenv('DB_HOST', 'localhost'),
-#         'PORT': os.getenv('DB_PORT', '5432'),
-#         'OPTIONS': {
-#             'connect_timeout': 10,
-#         }
-#     }
-# }
-
 # ✅ VALIDACIÓN DE CONTRASEÑAS
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -236,8 +221,9 @@ LOGGING = {
     },
 }
 
-# ✅ CREAR DIRECTORIO DE LOGS
+# ✅ CREAR DIRECTORIO DE LOGS y CACHE
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+os.makedirs(BASE_DIR / 'cache', exist_ok=True)
 
 # ✅ CONFIGURACIÓN DE EMAIL (para futuras notificaciones)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
@@ -251,11 +237,11 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 # ✅ CONFIGURACIÓN DE CACHE (para mejorar rendimiento)
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
-        'TIMEOUT': 300,  # 5 minutos
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': str(BASE_DIR / 'cache'),
+        'TIMEOUT': 300,
         'OPTIONS': {
-            'MAX_ENTRIES': 1000,
+            'MAX_ENTRIES': 10000,
         }
     }
 }
@@ -268,19 +254,6 @@ AFFILIATE_STRATEGIST_SETTINGS = {
     'MAX_COMPETITORS': 5,        # Máximo competidores en análisis
     'CACHE_ANALYSIS_HOURS': 24,  # Horas para cachear análisis similares
 }
-
-# ✅ REST FRAMEWORK (para APIs futuras)
-# REST_FRAMEWORK = {
-#     'DEFAULT_AUTHENTICATION_CLASSES': [
-#         'rest_framework.authentication.SessionAuthentication',
-#         'rest_framework.authentication.TokenAuthentication',
-#     ],
-#     'DEFAULT_PERMISSION_CLASSES': [
-#         'rest_framework.permissions.IsAuthenticated',
-#     ],
-#     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-#     'PAGE_SIZE': 20
-# }
 
 # ✅ CONFIGURACIÓN DE DESARROLLO
 if DEBUG:
