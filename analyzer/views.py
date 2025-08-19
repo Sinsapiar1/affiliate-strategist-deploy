@@ -12,6 +12,13 @@ import json
 def home(request):
     """Página de inicio y endpoint para crear análisis vía POST"""
     if request.method == 'GET':
+        # Asegura perfil si está autenticado
+        if request.user.is_authenticated and not hasattr(request.user, 'profile'):
+            try:
+                from .models import UserProfile
+                UserProfile.objects.get_or_create(user=request.user)
+            except Exception:
+                pass
         return render(request, 'analyzer/index.html')
 
     # POST: procesar análisis

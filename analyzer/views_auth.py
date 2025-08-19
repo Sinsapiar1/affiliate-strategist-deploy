@@ -52,6 +52,12 @@ class RegisterView(View):
                     email=email,
                     password=password
                 )
+                # Asegurar perfil
+                try:
+                    from .models import UserProfile
+                    UserProfile.objects.get_or_create(user=user)
+                except Exception:
+                    pass
                 
                 # ✅ Guardar información adicional en el perfil del usuario
                 if company:

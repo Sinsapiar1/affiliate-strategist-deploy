@@ -30,7 +30,7 @@ DJANGO_APPS = [
 ]
 
 LOCAL_APPS = [
-    'analyzer',
+    'analyzer.apps.AnalyzerConfig',
 ]
 
 THIRD_PARTY_APPS = [
@@ -44,6 +44,7 @@ INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS + THIRD_PARTY_APPS
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'analyzer.middleware.RateLimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
