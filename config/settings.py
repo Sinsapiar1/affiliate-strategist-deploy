@@ -43,6 +43,7 @@ INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS + THIRD_PARTY_APPS
 # ✅ MIDDLEWARE MEJORADO
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -53,7 +54,7 @@ MIDDLEWARE = [
     # 'corsheaders.middleware.CorsMiddleware',  # Si necesitas CORS
 ]
 
-ROOT_URLCONF = 'affiliate_strategist.urls'
+ROOT_URLCONF = 'config.urls'
 
 # ✅ TEMPLATES MEJORADOS
 TEMPLATES = [
@@ -76,7 +77,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'affiliate_strategist.wsgi.application'
+WSGI_APPLICATION = 'config.wsgi.application'
 
 # ✅ BASE DE DATOS CON CONFIGURACIÓN MEJORADA
 DATABASES = {
@@ -138,6 +139,9 @@ STATICFILES_DIRS = [
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# WhiteNoise storage para archivos estáticos comprimidos y cacheados
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # ✅ CONFIGURACIÓN DE ARCHIVOS
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

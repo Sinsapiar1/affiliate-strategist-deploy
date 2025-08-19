@@ -5,7 +5,7 @@ Django==5.2.4
 django-extensions==3.2.3
 
 # Base de datos PostgreSQL (psycopg 3 con binarios, compatible con Python 3.13)
-psycopg[binary]==3.2.1
+psycopg[binary]==3.2.9
 
 # Servidor web y archivos estáticos
 gunicorn==21.2.0
@@ -21,9 +21,9 @@ requests==2.31.0
 beautifulsoup4==4.12.2
 validators==0.22.0
 
-# Datos y análisis (si las necesitas)
-pandas==2.1.4
-numpy==1.24.4
+# (Opcional) Datos y análisis
+# pandas
+# numpy
 
 # Utilidades
 tqdm==4.66.1
