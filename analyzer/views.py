@@ -1,6 +1,6 @@
-﻿from django.shortcuts import render
+from django.shortcuts import render
 from django.http import HttpResponse
 
 def home(request):
-    """Vista básica para la página de inicio"""
-    return HttpResponse("¡Affiliate Strategist funcionando en Railway!")
+    """Página de inicio: renderiza la interfaz principal"""
+    return render(request, 'analyzer/index.html')
