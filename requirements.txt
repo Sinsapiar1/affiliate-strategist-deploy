@@ -4,12 +4,13 @@
 Django==5.2.4
 django-extensions==3.2.3
 
-# Base de datos PostgreSQL
-psycopg2-binary==2.9.9
+# Base de datos PostgreSQL (psycopg 3 con binarios, compatible con Python 3.13)
+psycopg[binary]==3.2.1
 
 # Servidor web y archivos estáticos
 gunicorn==21.2.0
 whitenoise==6.6.0
+Pillow==10.4.0
 
 # Configuración
 python-decouple==3.8
