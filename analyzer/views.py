@@ -111,14 +111,9 @@ def public_history(request):
     return render(request, 'analyzer/public_history.html', context)
 
 
-def download_pdf(request, analysis_id: str):
+def download_pdf(request, analysis_id):
     """Descarga PDF para un análisis"""
-    # Validar UUID y buscar
-    try:
-        UUID(analysis_id)
-    except Exception:
-        return HttpResponse('ID inválido', status=400)
-
+    # analysis_id ya viene validado por el converter <uuid:>
     analysis = get_object_or_404(AnalysisHistory, id=analysis_id)
     pdf_bytes = generate_strategy_pdf(analysis)
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
