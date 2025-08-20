@@ -40,7 +40,7 @@ class RequestLoggingMiddleware:
 
 
 class RateLimitMiddleware:
-    """Middleware para rate limiting básico"""
+    """Middleware para rate limiting robusto con DB"""
     
     def __init__(self, get_response):
         self.get_response = get_response
@@ -49,40 +49,36 @@ class RateLimitMiddleware:
         # Solo aplicar rate limiting a análisis para usuarios anónimos
         if request.path == '/' and request.method == 'POST':
             if isinstance(request.user, AnonymousUser):
-                if not self.check_rate_limit(request):
+                ip_address = self.get_client_ip(request)
+                
+                # Usar DB en lugar de cache para consistencia entre workers
+                from analyzer.models import AnonymousUsageTracker
+                
+                if not AnonymousUsageTracker.can_make_request(ip_address, limit=2):
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"🚫 Rate limit exceeded for IP: {ip_address}")
                     return JsonResponse({
                         'success': False,
-                        'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.'
+                        'limit_reached': True,
+                        'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.',
+                        'register_url': '/register/'
                     }, status=429)
+                
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f"✅ Anonymous request allowed for IP: {ip_address}")
         
         return self.get_response(request)
     
-    def check_rate_limit(self, request):
-        """Verifica límites de peticiones"""
-        ip = self.get_client_ip(request)
-        # Clave por día para reiniciar automáticamente a medianoche
-        from datetime import datetime
-        # Usar UTC para consistencia
-        day_key = datetime.utcnow().strftime('%Y%m%d')
-        user_key = f"rate_limit:{ip}:{day_key}"
-        
-        # Límite: 2 análisis por día para anónimos. Usuarios autenticados se gestionan por plan mensual.
-        requests_count = cache.get(user_key, 0)
-        limit = 2
-        
-        if requests_count >= limit:
-            return False
-        
-        # TTL hasta 24h
-        cache.set(user_key, requests_count + 1, 86400)
-        return True
-    
     def get_client_ip(self, request):
+        """Obtiene la IP real del cliente (Railway/proxy aware)"""
+        # Railway usa X-Forwarded-For
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0]
+            ip = x_forwarded_for.split(',')[0].strip()
         else:
-            ip = request.META.get('REMOTE_ADDR')
+            ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
         return ip
 
 

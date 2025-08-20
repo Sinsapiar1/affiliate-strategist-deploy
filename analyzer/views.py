@@ -7,18 +7,31 @@ from .utils.ai_integration import detect_and_generate
 from .utils.pdf_generator import generate_strategy_pdf
 from uuid import UUID
 import json
+import logging
 
 @require_http_methods(["GET", "POST"])
 def home(request):
     """Página de inicio y endpoint para crear análisis vía POST"""
+    logger = logging.getLogger(__name__)
+    
     if request.method == 'GET':
-        # Asegura perfil si está autenticado
-        if request.user.is_authenticated and not hasattr(request.user, 'profile'):
+        # Crear perfil si está autenticado y no lo tiene
+        if request.user.is_authenticated:
             try:
                 from .models import UserProfile
-                UserProfile.objects.get_or_create(user=request.user)
-            except Exception:
-                pass
+                profile, created = UserProfile.objects.get_or_create(
+                    user=request.user,
+                    defaults={
+                        'plan': 'free',
+                        'analyses_limit_monthly': 5,
+                        'analyses_this_month': 0
+                    }
+                )
+                if created:
+                    logger.info(f"✅ Perfil creado para {request.user.username}")
+            except Exception as e:
+                logger.error(f"❌ Error creando perfil: {str(e)}")
+        
         return render(request, 'analyzer/index.html')
 
     # POST: procesar análisis
@@ -30,31 +43,46 @@ def home(request):
     tone = request.POST.get('tone', 'professional')
     api_key = request.POST.get('api_key', '').strip()
 
+    logger.info(f"🔄 Análisis solicitado: {analysis_type} - {product_url} - Usuario: {request.user.username if request.user.is_authenticated else 'Anónimo'}")
+
     if not product_url or not api_key:
-        return JsonResponse({'success': False, 'error': 'Faltan datos: URL del producto y API key son obligatorias.'}, status=400)
+        return JsonResponse({
+            'success': False, 
+            'error': 'Faltan datos: URL del producto y API key son obligatorias.'
+        }, status=400)
 
     # Lógica de límites: anónimo -> limitado por IP (middleware); autenticado -> por plan mensual
     if request.user.is_authenticated:
-        # Garantiza que exista perfil
-        if not hasattr(request.user, 'profile'):
-            try:
-                from .models import UserProfile
-                UserProfile.objects.get_or_create(user=request.user)
-            except Exception:
-                pass
-        # Asegurar reset mensual antes de evaluar límite
-        if hasattr(request.user, 'profile'):
-            try:
-                request.user.profile.reset_monthly_counter_if_needed()
-            except Exception:
-                pass
-        if hasattr(request.user, 'profile') and not request.user.profile.can_analyze():
+        try:
+            # Crear perfil si no existe
+            from .models import UserProfile
+            profile, created = UserProfile.objects.get_or_create(
+                user=request.user,
+                defaults={
+                    'plan': 'free',
+                    'analyses_limit_monthly': 5,
+                    'analyses_this_month': 0
+                }
+            )
+            
+            # Verificar límites de forma atómica
+            if not profile.can_analyze_atomic():
+                logger.warning(f"🚫 Límite alcanzado para {request.user.username}")
+                return JsonResponse({
+                    'success': False,
+                    'limit_reached': True,
+                    'error': f'Has alcanzado tu límite mensual ({profile.analyses_limit_monthly}). Actualiza tu plan para continuar.',
+                    'upgrade_url': '/upgrade/',
+                    'current_count': profile.analyses_this_month,
+                    'limit': profile.analyses_limit_monthly
+                }, status=429)
+                
+        except Exception as e:
+            logger.error(f"❌ Error verificando límites: {str(e)}")
             return JsonResponse({
                 'success': False,
-                'limit_reached': True,
-                'error': 'Has alcanzado tu límite mensual. Actualiza tu plan para continuar.',
-                'upgrade_url': '/upgrade/'
-            }, status=429)
+                'error': 'Error interno verificando límites'
+            }, status=500)
 
     # Construir prompt simple (puedes mejorar con más contexto)
     prompt_parts = [
@@ -70,7 +98,11 @@ def home(request):
 
     ai_result = detect_and_generate(prompt, api_key)
     if not ai_result.get('success'):
-        return JsonResponse({'success': False, 'error': ai_result.get('error', 'Error generando estrategia')}, status=400)
+        logger.error(f"❌ Error IA: {ai_result.get('error')}")
+        return JsonResponse({
+            'success': False, 
+            'error': ai_result.get('error', 'Error generando estrategia')
+        }, status=400)
 
     # Guardar análisis
     try:
@@ -89,12 +121,13 @@ def home(request):
             success=True
         )
 
-        # Actualizar contadores si aplica
-        if request.user.is_authenticated and hasattr(request.user, 'profile'):
+        # Incrementar contadores si es usuario autenticado
+        if request.user.is_authenticated:
             try:
-                request.user.profile.add_analysis_count()
-            except Exception:
-                pass
+                request.user.profile.add_analysis_count_atomic()
+                logger.info(f"✅ Contador incrementado para {request.user.username}")
+            except Exception as e:
+                logger.error(f"❌ Error incrementando contador: {str(e)}")
 
         return JsonResponse({
             'success': True,
@@ -106,7 +139,11 @@ def home(request):
             }
         })
     except Exception as e:
-        return JsonResponse({'success': False, 'error': f'No se pudo guardar el análisis: {str(e)}'}, status=500)
+        logger.error(f"❌ Error guardando análisis: {str(e)}")
+        return JsonResponse({
+            'success': False, 
+            'error': f'No se pudo guardar el análisis: {str(e)}'
+        }, status=500)
 
 
 def history(request):

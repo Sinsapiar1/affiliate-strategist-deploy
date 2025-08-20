@@ -25,8 +25,11 @@ class RegisterView(View):
         return render(request, 'analyzer/auth/register.html')
     
     def post(self, request):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
-            # ✅ Manejar tanto JSON como formulario
+            # Datos del formulario
             if request.content_type == 'application/json':
                 data = json.loads(request.body)
             else:
@@ -38,54 +41,72 @@ class RegisterView(View):
             password2 = data.get('password2', '')
             company = data.get('company_name', '').strip()
             
-            # ✅ Validaciones
+            logger.info(f"🔄 Intento de registro: {username} - {email}")
+            
+            # Validaciones detalladas
             errors = self.validate_registration(username, email, password, password2)
             if errors:
+                logger.warning(f"❌ Validación falló para {username}: {errors}")
                 for field, error in errors.items():
-                    messages.error(request, error)
+                    messages.error(request, f"{field}: {error}")
                 return render(request, 'analyzer/auth/register.html')
             
-            # ✅ Crear usuario
+            # Verificar duplicados explícitamente
+            if User.objects.filter(username=username).exists():
+                logger.warning(f"❌ Username duplicado: {username}")
+                messages.error(request, f'El usuario "{username}" ya existe')
+                return render(request, 'analyzer/auth/register.html')
+            
+            if User.objects.filter(email=email).exists():
+                logger.warning(f"❌ Email duplicado: {email}")
+                messages.error(request, f'El email "{email}" ya está registrado')
+                return render(request, 'analyzer/auth/register.html')
+            
+            # Crear usuario con transacción
             with transaction.atomic():
+                logger.info(f"🔄 Creando usuario: {username}")
                 user = User.objects.create_user(
                     username=username,
                     email=email,
                     password=password
                 )
-                # Asegurar perfil
-                try:
-                    from .models import UserProfile
-                    UserProfile.objects.get_or_create(user=user)
-                except Exception:
-                    pass
                 
-                # ✅ Guardar información adicional en el perfil del usuario
+                # Crear perfil explícitamente
+                from .models import UserProfile
+                profile, created = UserProfile.objects.get_or_create(
+                    user=user,
+                    defaults={
+                        'plan': 'free',
+                        'analyses_limit_monthly': 5,
+                        'analyses_this_month': 0
+                    }
+                )
+                logger.info(f"✅ Perfil creado: {username} - {created}")
+                
+                # Guardar empresa si se proporciona
                 if company:
-                    user.first_name = company  # Usar first_name para empresa temporalmente
+                    user.first_name = company
                     user.save()
                 
-                # ✅ Auto-login
+                # Auto-login
                 login(request, user)
+                logger.info(f"✅ Usuario registrado y logueado: {username}")
                 
-                # ✅ Mensaje de éxito
                 messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
                 
-                # ✅ Responder según el tipo de petición
                 if request.content_type == 'application/json':
                     return JsonResponse({
                         'success': True,
                         'message': f'¡Bienvenido {username}!',
-                        'redirect': '/',
-                        'user': {
-                            'username': user.username,
-                            'email': user.email
-                        }
+                        'redirect': '/'
                     })
                 else:
                     return redirect('/')
-                
+            
         except Exception as e:
-            error_msg = 'Error al crear la cuenta. Intenta nuevamente.'
+            # Log completo del error
+            logger.error(f"❌ Error crítico en registro: {str(e)}", exc_info=True)
+            error_msg = f'Error al crear la cuenta: {str(e)}'
             messages.error(request, error_msg)
             
             if request.content_type == 'application/json':
