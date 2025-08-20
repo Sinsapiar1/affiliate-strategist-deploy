@@ -3,6 +3,7 @@ from django.http import JsonResponse, HttpResponse
 from django.contrib.auth.decorators import login_required
 from django.views.decorators.http import require_http_methods
 from .models import AnalysisHistory
+from django.core.cache import cache
 from .utils.ai_integration import detect_and_generate
 from .utils.pdf_generator import generate_strategy_pdf
 from uuid import UUID
@@ -84,6 +85,27 @@ def home(request):
                 'error': 'Error interno verificando límites'
             }, status=500)
 
+    # Idempotencia breve para evitar doble envío accidental (20s)
+    try:
+        import hashlib
+        def _get_client_ip(req):
+            xff = req.META.get('HTTP_X_FORWARDED_FOR')
+            return xff.split(',')[0].strip() if xff else req.META.get('REMOTE_ADDR', '127.0.0.1')
+        identity = f"user:{request.user.id}" if request.user.is_authenticated else f"ip:{_get_client_ip(request)}"
+        base_string = f"{product_url}|{platform}|{target_audience}|{campaign_goal}|{tone}"
+        token = hashlib.md5(base_string.encode()).hexdigest()
+        dedupe_key = f"analyze_dedupe:{identity}:{token}"
+        if cache.get(dedupe_key):
+            return JsonResponse({
+                'success': False,
+                'error': 'Petición duplicada detectada. Espera unos segundos e intenta de nuevo.'
+            }, status=409)
+        # Pre-marcar para evitar duplicación en ráfaga
+        cache.set(dedupe_key, True, 20)
+    except Exception:
+        # Si falla, continuar sin idempotencia
+        pass
+
     # Construir prompt simple (puedes mejorar con más contexto)
     prompt_parts = [
         f"Genera una estrategia de marketing para el producto en {product_url}.",
@@ -150,6 +172,11 @@ def home(request):
         })
     except Exception as e:
         logger.error(f"❌ Error guardando análisis: {str(e)}")
+        # Limpiar marca de idempotencia si falló creación
+        try:
+            cache.delete(dedupe_key)
+        except Exception:
+            pass
         return JsonResponse({
             'success': False, 
             'error': f'No se pudo guardar el análisis: {str(e)}'

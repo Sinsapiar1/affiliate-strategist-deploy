@@ -93,7 +93,7 @@ class RateLimitMiddleware:
                         from django.utils import timezone
                         day_key = timezone.now().strftime('%Y%m%d')
                         sess_key = f'anon_requests_{day_key}'
-                        count = int(request.session.get(sess_key, 0))
+                        count = int(request.session.get(sess_key, 0) or 0)
                         logger.info(f"🗃️ MIDDLEWARE: Fallback session count {count} for {ip_address}")
                         if count >= 2:
                             logger.warning(f"🚫 MIDDLEWARE: BLOQUEANDO por sesión a {ip_address}")
