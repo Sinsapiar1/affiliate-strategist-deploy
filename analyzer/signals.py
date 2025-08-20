@@ -8,12 +8,18 @@ from .models import UserProfile
 def create_user_profile(sender, instance, created, **kwargs):
     if created:
         try:
-            UserProfile.objects.create(user=instance)
-            # Inicializar límites por plan free
-            instance.profile.analyses_limit_monthly = 5
-            instance.profile.analyses_this_month = 0
-            instance.profile.save(update_fields=['analyses_limit_monthly', 'analyses_this_month'])
+            # Usar get_or_create para evitar errores de UNIQUE por duplicado
+            profile, _ = UserProfile.objects.get_or_create(user=instance, defaults={
+                'analyses_limit_monthly': 5,
+                'analyses_this_month': 0,
+            })
+            # Asegurar límites iniciales
+            if profile.analyses_limit_monthly != 5 or profile.analyses_this_month != 0:
+                profile.analyses_limit_monthly = 5
+                profile.analyses_this_month = 0
+                profile.save(update_fields=['analyses_limit_monthly', 'analyses_this_month'])
         except Exception:
+            # No bloquear creación de usuario por fallo en perfil
             pass
 
 

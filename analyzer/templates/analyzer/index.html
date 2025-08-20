@@ -284,7 +284,7 @@
                                 </div>
 
                                 <div class="text-center">
-                                    <button type="submit" class="btn btn-primary btn-lg">
+                                    <button type="submit" class="btn btn-primary btn-lg" id="submitBasicBtn">
                                         <i class="fas fa-rocket me-2"></i>Generar Estrategia
                                     </button>
                                 </div>
@@ -348,7 +348,7 @@
                                 </div>
 
                                 <div class="text-center">
-                                    <button type="submit" class="btn btn-warning btn-lg">
+                                    <button type="submit" class="btn btn-warning btn-lg" id="submitCompetitiveBtn">
                                         <i class="fas fa-chart-bar me-2"></i>Análisis Competitivo
                                     </button>
                                 </div>
@@ -474,6 +474,22 @@
                         productInfo: data.product || data.product_info,
                         timestamp: new Date().toLocaleString()
                     };
+                    // ✅ Actualizar banner de uso si viene en la respuesta
+                    if (data.usage) {
+                        const banner = document.querySelector('.alert.alert-info, .alert.alert-warning');
+                        if (banner) {
+                            const planLabel = data.usage.plan === 'premium' ? '💎 Premium' : '🆓 Gratuito';
+                            banner.classList.remove('alert-info','alert-warning');
+                            banner.classList.add(data.usage.remaining <= 1 ? 'alert-warning' : 'alert-info');
+                            banner.innerHTML = `
+                                <div>
+                                    <strong>${planLabel} - Análisis este mes: ${data.usage.this_month}/${data.usage.limit}</strong>
+                                    ${data.usage.remaining === 0 ? '<span class="text-danger ms-3">¡Has alcanzado tu límite mensual!</span>' : (data.usage.remaining <= 2 ? `<span class="text-warning ms-3">Te quedan ${data.usage.remaining} análisis</span>` : '')}
+                                </div>
+                                ${data.usage.plan === 'free' ? '<a href="/upgrade/" class="btn btn-sm btn-warning"><i class="fas fa-crown me-1"></i>Obtener Pro</a>' : ''}
+                            `;
+                        }
+                    }
                     
                     currentDownloadId = data.analysis_id;
                     resolve(data);

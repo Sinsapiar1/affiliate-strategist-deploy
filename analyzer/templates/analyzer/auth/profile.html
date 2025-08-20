@@ -70,10 +70,18 @@
                             <h3 class="text-success">{{ total_analyses }}</h3>
                             <p class="text-muted mb-0">Análisis creados</p>
                         </div>
+                        {% if user.profile %}
                         <div class="mb-2">
-                            <h5 class="text-primary">🆓 Plan Gratuito</h5>
-                            <small class="text-muted">Análisis ilimitados</small>
+                            <h5 class="text-primary">{{ user.profile.get_plan_display_with_emoji }}</h5>
+                            {% if user.profile.plan == 'premium' %}
+                                <small class="text-muted">Análisis ilimitados</small>
+                            {% else %}
+                                <small class="text-muted">
+                                    {{ user.profile.analyses_this_month }}/{{ user.profile.analyses_limit_monthly }} este mes
+                                </small>
+                            {% endif %}
                         </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>

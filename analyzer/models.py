@@ -319,24 +319,31 @@ class UserProfile(models.Model):
         self.save()
     
     def reset_monthly_counter_if_needed(self):
-        """Resetea el contador mensual si ha pasado un mes"""
+        """Reset mensual mejorado con logs"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         now = django_timezone.now()
         
-        # Si no hay fecha de último reset, usar la fecha de creación
         if not self.last_reset_date:
             self.last_reset_date = self.created_at.date() if self.created_at else now.date()
             self.save(update_fields=['last_reset_date'])
+            logger.info(f"🔄 Inicializado last_reset_date para {self.user.username}")
             return
         
-        # Si ha pasado un mes desde el último reset
-        if (now.year > self.last_reset_date.year or 
-            (now.year == self.last_reset_date.year and now.month > self.last_reset_date.month)):
-            
+        # Verificar si necesita reset
+        should_reset = (
+            now.year > self.last_reset_date.year or 
+            (now.year == self.last_reset_date.year and now.month > self.last_reset_date.month)
+        )
+        
+        if should_reset:
+            old_count = self.analyses_this_month
             self.analyses_this_month = 0
             self.last_reset_date = now.date()
             self.save(update_fields=['analyses_this_month', 'last_reset_date'])
             
-            print(f"💫 Contador mensual reseteado para usuario {self.user.username}")
+            logger.info(f"🔄 Reset mensual: {self.user.username} - {old_count} → 0")
     
     def add_analysis_count(self):
         """Incrementa el contador de análisis del mes"""
@@ -348,6 +355,56 @@ class UserProfile(models.Model):
     def increment_analysis_count(self):
         """Incrementa el contador de análisis del mes (alias)"""
         self.add_analysis_count()
+    
+    def can_analyze_atomic(self):
+        """Verifica límites de forma atómica y segura"""
+        from django.db import transaction
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        with transaction.atomic():
+            # Reload desde DB para evitar datos obsoletos
+            profile = UserProfile.objects.select_for_update().get(pk=self.pk)
+            
+            # Reset mensual si es necesario
+            profile.reset_monthly_counter_if_needed()
+            
+            # Verificar límites
+            if profile.plan == 'premium':
+                return True
+            
+            can_analyze = profile.analyses_this_month < profile.analyses_limit_monthly
+            logger.info(f"📊 {profile.user.username}: {profile.analyses_this_month}/{profile.analyses_limit_monthly} - Can analyze: {can_analyze}")
+            
+            return can_analyze
+    
+    def add_analysis_count_atomic(self):
+        """Incrementa contador de forma atómica si no excede el límite.
+        Retorna True si incrementó; False si ya alcanzó el límite.
+        """
+        from django.db import transaction
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        with transaction.atomic():
+            profile = UserProfile.objects.select_for_update().get(pk=self.pk)
+            profile.reset_monthly_counter_if_needed()
+            
+            # Verificar límites antes de incrementar
+            if profile.plan != 'premium' and profile.analyses_this_month >= profile.analyses_limit_monthly:
+                logger.warning(
+                    f"🚫 Límite alcanzado (post-check) para {profile.user.username}: "
+                    f"{profile.analyses_this_month}/{profile.analyses_limit_monthly}"
+                )
+                return False
+            
+            old_count = profile.analyses_this_month
+            profile.analyses_this_month += 1
+            profile.total_analyses += 1
+            profile.save(update_fields=['analyses_this_month', 'total_analyses'])
+            
+            logger.info(f"✅ {profile.user.username}: análisis incrementado {old_count} → {profile.analyses_this_month}")
+            return True
     
     def get_plan_details(self):
         """Retorna detalles completos del plan"""
@@ -499,6 +556,65 @@ class Notification(models.Model):
             self.is_read = True
             self.read_at = django_timezone.now()
             self.save(update_fields=['is_read', 'read_at'])
+
+
+# ✅ TRACKING DE USO ANÓNIMO
+class AnonymousUsageTracker(models.Model):
+    """Tracking de uso para usuarios anónimos"""
+    
+    ip_address = models.GenericIPAddressField()
+    date = models.DateField(default=django_timezone.now)
+    requests_count = models.PositiveIntegerField(default=1)
+    last_request = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['ip_address', 'date']
+        indexes = [
+            models.Index(fields=['ip_address', 'date']),
+        ]
+    
+    def __str__(self):
+        return f"{self.ip_address} - {self.date} ({self.requests_count})"
+    
+    @classmethod
+    def can_make_request(cls, ip_address, limit=2):
+        """Verifica si una IP puede hacer más requests hoy"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        today = django_timezone.now().date()
+        logger.info(f"🔍 Verificando límite para {ip_address} en {today}")
+        
+        try:
+            tracker, created = cls.objects.get_or_create(
+                ip_address=ip_address,
+                date=today,
+                defaults={'requests_count': 0}
+            )
+            
+            logger.info(f"📊 IP {ip_address}: {tracker.requests_count} requests hoy")
+            
+            if tracker.requests_count >= limit:
+                logger.warning(f"🚫 Límite alcanzado: {tracker.requests_count}/{limit}")
+                return False
+            
+            # Incrementar contador atómicamente
+            from django.db import transaction
+            with transaction.atomic():
+                tracker = cls.objects.select_for_update().get(
+                    ip_address=ip_address, 
+                    date=today
+                )
+                tracker.requests_count += 1
+                tracker.save()
+                logger.info(f"✅ Contador incrementado: {tracker.requests_count}")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error en can_make_request: {e}")
+            # En caso de error, permitir request
+            return True
 
 
 # ✅ ANALYTICS Y MÉTRICAS
