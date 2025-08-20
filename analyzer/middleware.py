@@ -40,36 +40,43 @@ class RequestLoggingMiddleware:
 
 
 class RateLimitMiddleware:
-    """Middleware para rate limiting robusto con DB"""
+    """Middleware para rate limiting robusto"""
     
     def __init__(self, get_response):
         self.get_response = get_response
     
     def __call__(self, request):
-        # Solo aplicar rate limiting a análisis para usuarios anónimos
-        if request.path == '/' and request.method == 'POST':
-            if isinstance(request.user, AnonymousUser):
-                ip_address = self.get_client_ip(request)
-                
-                # Usar DB en lugar de cache para consistencia entre workers
-                from analyzer.models import AnonymousUsageTracker
-                
-                if not AnonymousUsageTracker.can_make_request(ip_address, limit=2):
-                    import logging
-                    logger = logging.getLogger(__name__)
-                    logger.warning(f"🚫 Rate limit exceeded for IP: {ip_address}")
-                    return JsonResponse({
-                        'success': False,
-                        'limit_reached': True,
-                        'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.',
-                        'register_url': '/register/'
-                    }, status=429)
-                
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.info(f"✅ Anonymous request allowed for IP: {ip_address}")
+        import logging
+        logger = logging.getLogger(__name__)
         
-        return self.get_response(request)
+        # Solo aplicar a análisis POST en home
+        if request.path == '/' and request.method == 'POST':
+            # Verificar si es usuario anónimo
+            if not getattr(request, 'user', None) or not request.user.is_authenticated:
+                ip_address = self.get_client_ip(request)
+                logger.info(f"🔍 Verificando rate limit para IP anónima: {ip_address}")
+                
+                # Usar el modelo para verificar límites
+                try:
+                    from analyzer.models import AnonymousUsageTracker
+                    
+                    if not AnonymousUsageTracker.can_make_request(ip_address, limit=2):
+                        logger.warning(f"🚫 Rate limit exceeded for IP: {ip_address}")
+                        return JsonResponse({
+                            'success': False,
+                            'limit_reached': True,
+                            'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.',
+                            'register_url': '/register/'
+                        }, status=429)
+                    
+                    logger.info(f"✅ Rate limit OK para IP: {ip_address}")
+                    
+                except Exception as e:
+                    logger.error(f"❌ Error en rate limiting: {e}")
+                    # En caso de error, permitir la request
+        
+        response = self.get_response(request)
+        return response
     
     def get_client_ip(self, request):
         """Obtiene la IP real del cliente (Railway/proxy aware)"""

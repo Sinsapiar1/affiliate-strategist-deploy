@@ -568,7 +568,11 @@ class AnonymousUsageTracker(models.Model):
     @classmethod
     def can_make_request(cls, ip_address, limit=2):
         """Verifica si una IP puede hacer más requests hoy"""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         today = django_timezone.now().date()
+        logger.info(f"🔍 Verificando límite para {ip_address} en {today}")
         
         try:
             tracker, created = cls.objects.get_or_create(
@@ -577,7 +581,10 @@ class AnonymousUsageTracker(models.Model):
                 defaults={'requests_count': 0}
             )
             
+            logger.info(f"📊 IP {ip_address}: {tracker.requests_count} requests hoy")
+            
             if tracker.requests_count >= limit:
+                logger.warning(f"🚫 Límite alcanzado: {tracker.requests_count}/{limit}")
                 return False
             
             # Incrementar contador atómicamente
@@ -589,10 +596,12 @@ class AnonymousUsageTracker(models.Model):
                 )
                 tracker.requests_count += 1
                 tracker.save()
+                logger.info(f"✅ Contador incrementado: {tracker.requests_count}")
             
             return True
             
-        except Exception:
+        except Exception as e:
+            logger.error(f"❌ Error en can_make_request: {e}")
             # En caso de error, permitir request
             return True
 

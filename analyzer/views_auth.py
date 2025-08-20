@@ -51,7 +51,7 @@ class RegisterView(View):
                     messages.error(request, f"{field}: {error}")
                 return render(request, 'analyzer/auth/register.html')
             
-            # Verificar duplicados explícitamente
+            # Verificar duplicados explícitamente FUERA de transacción
             if User.objects.filter(username=username).exists():
                 logger.warning(f"❌ Username duplicado: {username}")
                 messages.error(request, f'El usuario "{username}" ya existe')
@@ -62,55 +62,50 @@ class RegisterView(View):
                 messages.error(request, f'El email "{email}" ya está registrado')
                 return render(request, 'analyzer/auth/register.html')
             
-            # Crear usuario con transacción
-            user = None
-            with transaction.atomic():
-                logger.info(f"🔄 Creando usuario: {username}")
-                user = User.objects.create_user(
-                    username=username,
-                    email=email,
-                    password=password
-                )
-                
-                # Crear perfil explícitamente
-                from .models import UserProfile
-                profile, created = UserProfile.objects.get_or_create(
-                    user=user,
-                    defaults={
-                        'plan': 'free',
-                        'analyses_limit_monthly': 5,
-                        'analyses_this_month': 0
-                    }
-                )
-                logger.info(f"✅ Perfil creado: {username} - {created}")
-                
-                # Guardar empresa si se proporciona
-                if company:
-                    user.first_name = company
-                    user.save()
-        
-            # Login FUERA del bloque atómico
-            if user:
-                login(request, user)
-                logger.info(f"✅ Usuario registrado y logueado: {username}")
-                
-                messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
-                
-                if request.content_type == 'application/json':
-                    return JsonResponse({
-                        'success': True,
-                        'message': f'¡Bienvenido {username}!',
-                        'redirect': '/'
-                    })
-                else:
-                    return redirect('/')
+            # Crear usuario SIN transacción atómica
+            logger.info(f"🔄 Creando usuario: {username}")
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password
+            )
+            
+            # Crear perfil SIN transacción atómica
+            from .models import UserProfile
+            profile, created = UserProfile.objects.get_or_create(
+                user=user,
+                defaults={
+                    'plan': 'free',
+                    'analyses_limit_monthly': 5,
+                    'analyses_this_month': 0
+                }
+            )
+            logger.info(f"✅ Perfil creado: {username} - {created}")
+            
+            # Guardar empresa si se proporciona
+            if company:
+                user.first_name = company
+                user.save()
+            
+            # Login DIRECTO sin transacciones
+            login(request, user)
+            logger.info(f"✅ Usuario registrado y logueado: {username}")
+            
+            messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
+            
+            if request.content_type == 'application/json':
+                return JsonResponse({
+                    'success': True,
+                    'message': f'¡Bienvenido {username}!',
+                    'redirect': '/'
+                })
             else:
-                raise Exception("Usuario no creado correctamente")
+                return redirect('/')
                 
         except Exception as e:
             # Log completo del error
             logger.error(f"❌ Error crítico en registro: {str(e)}", exc_info=True)
-            error_msg = f'Error al crear la cuenta: {str(e)}'
+            error_msg = f'Error específico: {str(e)}'
             messages.error(request, error_msg)
             
             if request.content_type == 'application/json':
