@@ -87,10 +87,10 @@ class RegisterView(View):
                 if company:
                     user.first_name = company
                     user.save()
-                
-                # Auto-login
-                login(request, user)
-                logger.info(f"✅ Usuario registrado y logueado: {username}")
+
+            # Auto-login fuera del bloque atómico
+            login(request, user)
+            logger.info(f"✅ Usuario registrado y logueado: {username}")
                 
                 messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
                 
