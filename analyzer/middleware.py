@@ -57,7 +57,7 @@ class RateLimitMiddleware:
         logger.info(f"🔍 MIDDLEWARE: {request.method} {request.path} - Auth: {is_auth}")
         
         # Solo aplicar a análisis POST en home
-        if request.path == '/' and request.method == 'POST':
+        if request.path == '/' and request.method.upper() == 'POST':
             logger.info("🎯 MIDDLEWARE: Es POST en /")
             
             # Verificar si es usuario anónimo
