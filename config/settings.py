@@ -240,17 +240,53 @@ EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
 EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
-# ✅ CONFIGURACIÓN DE CACHE (para mejorar rendimiento)
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
-        'LOCATION': str(BASE_DIR / 'cache'),
-        'TIMEOUT': 300,
-        'OPTIONS': {
-            'MAX_ENTRIES': 10000,
+# ✅ CONFIGURACIÓN DE CACHE MEJORADA CON REDIS
+# Esta configuración resuelve el problema P2 de rate limiting
+
+# Detectar si Railway tiene Redis configurado
+REDIS_URL = os.getenv('REDIS_URL') or os.getenv('REDISCLOUD_URL') or os.getenv('REDIS_PRIVATE_URL')
+
+if REDIS_URL:
+    # ✅ REDIS DISPONIBLE - Configuración para producción
+    print("🔗 Redis detectado, usando cache compartido")
+    
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': REDIS_URL,
+            'OPTIONS': {
+                'socket_timeout': 5,
+                'socket_connect_timeout': 5,
+                'connection_pool_kwargs': {
+                    'max_connections': 20,
+                    'socket_keepalive': True,
+                    'socket_keepalive_options': {},
+                },
+                'compressor': 'django.core.cache.backends.redis.CompressionMiddleware',
+            },
+            'KEY_PREFIX': 'affiliate_strategist',
+            'TIMEOUT': 300,  # 5 minutos por defecto
         }
     }
-}
+    
+    # ✅ CONFIGURACIÓN DE SESIONES EN REDIS (opcional, mejora rendimiento)
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+    SESSION_CACHE_ALIAS = 'default'
+    
+else:
+    # ✅ FALLBACK SIN REDIS - Para desarrollo local
+    print("⚠️ Redis no disponible, usando cache local")
+    
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+            'LOCATION': str(BASE_DIR / 'cache'),
+            'TIMEOUT': 300,
+            'OPTIONS': {
+                'MAX_ENTRIES': 10000,
+            }
+        }
+    }
 
 # ✅ CONFIGURACIÓN PERSONALIZADA DE LA APP
 AFFILIATE_STRATEGIST_SETTINGS = {
@@ -277,3 +313,58 @@ if DEBUG:
     
     # Email a consola en desarrollo
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+# ✅ CONFIGURACIÓN DE LOGGING MEJORADA PARA DEBUGGING
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'formatter': 'verbose',
+        },
+        'console': {
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'rate_limit_file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'rate_limit.log',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+        },
+        'analyzer': {
+            'handlers': ['file', 'console'],
+            'level': 'DEBUG' if DEBUG else 'INFO',
+            'propagate': False,
+        },
+        'analyzer.middleware': {
+            'handlers': ['rate_limit_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
+# ✅ CREAR DIRECTORIOS NECESARIOS
+os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+os.makedirs(BASE_DIR / 'cache', exist_ok=True)

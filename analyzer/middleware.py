@@ -1,4 +1,4 @@
-# analyzer/middleware.py - MIDDLEWARE PERSONALIZADO
+# analyzer/middleware.py - VERSIÓN MEJORADA PARA RESOLVER RATE LIMITING
 
 import time
 import logging
@@ -6,8 +6,239 @@ from django.http import JsonResponse
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from datetime import datetime, timedelta
+import hashlib
+import json
 
 logger = logging.getLogger(__name__)
+
+class ImprovedRateLimitMiddleware:
+    """
+    Middleware mejorado para rate limiting que funciona tanto 
+    con Redis como con fallbacks locales
+    """
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        # Solo aplicar a análisis POST en home
+        if request.path == '/' and request.method.upper() == 'POST':
+            logger.info(f"🎯 RATE LIMIT: Verificando {request.method} {request.path}")
+            
+            # Verificar si es usuario anónimo
+            if not request.user.is_authenticated:
+                logger.info("🚫 RATE LIMIT: Usuario anónimo detectado")
+                
+                # Obtener IP real
+                ip_address = self.get_real_client_ip(request)
+                logger.info(f"🔍 RATE LIMIT: IP detectada: {ip_address}")
+                
+                # Verificar límite con estrategia multi-layer
+                can_proceed = self.check_anonymous_limit(ip_address, request)
+                
+                if not can_proceed:
+                    logger.warning(f"🚫 RATE LIMIT: BLOQUEANDO IP {ip_address}")
+                    return JsonResponse({
+                        'success': False,
+                        'limit_reached': True,
+                        'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más análisis.',
+                        'register_url': '/register/',
+                        'reset_in_hours': self.get_hours_until_reset()
+                    }, status=429)
+                
+                logger.info(f"✅ RATE LIMIT: PERMITIENDO IP {ip_address}")
+        
+        response = self.get_response(request)
+        return response
+    
+    def get_real_client_ip(self, request):
+        """
+        Obtiene la IP real del cliente considerando proxies de Railway
+        """
+        # Railway y otros proxies usan estos headers
+        possible_headers = [
+            'HTTP_CF_CONNECTING_IP',      # Cloudflare
+            'HTTP_X_FORWARDED_FOR',       # Estándar
+            'HTTP_X_REAL_IP',             # Nginx
+            'HTTP_X_CLIENT_IP',           # Apache
+            'REMOTE_ADDR'                 # Fallback
+        ]
+        
+        for header in possible_headers:
+            ip = request.META.get(header)
+            if ip:
+                # X-Forwarded-For puede tener múltiples IPs
+                if ',' in ip:
+                    ip = ip.split(',')[0].strip()
+                
+                # Validar que es una IP válida
+                if self.is_valid_ip(ip):
+                    logger.debug(f"🔍 IP encontrada en {header}: {ip}")
+                    return ip
+        
+        # Fallback
+        return '127.0.0.1'
+    
+    def is_valid_ip(self, ip):
+        """Validación básica de IP"""
+        import re
+        pattern = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+        return pattern.match(ip) and all(0 <= int(x) <= 255 for x in ip.split('.'))
+    
+    def check_anonymous_limit(self, ip_address, request):
+        """
+        Estrategia multi-layer para verificar límites:
+        1. Cache (Redis si disponible)
+        2. Base de datos
+        3. Sesión (fallback)
+        """
+        
+        # LAYER 1: Cache (Redis o local)
+        cache_result = self.check_cache_limit(ip_address)
+        if cache_result is not None:
+            return cache_result
+        
+        # LAYER 2: Base de datos (más confiable)
+        db_result = self.check_database_limit(ip_address)
+        if db_result is not None:
+            return db_result
+        
+        # LAYER 3: Sesión (último recurso)
+        return self.check_session_limit(request)
+    
+    def check_cache_limit(self, ip_address):
+        """Verificación por cache con operaciones atómicas"""
+        try:
+            from django.utils import timezone
+            today = timezone.now().strftime('%Y%m%d')
+            cache_key = f'anon_limit:{ip_address}:{today}'
+            
+            # Usar add() para operación atómica si el cache lo soporta
+            if hasattr(cache, 'add'):
+                # Intentar crear la entrada con valor 1
+                if cache.add(cache_key, 1, 86400):  # 24 horas
+                    logger.info(f"📦 CACHE: Primera request del día para {ip_address}")
+                    return True
+                
+                # Si ya existe, intentar incrementar
+                try:
+                    current_count = cache.get(cache_key, 0)
+                    if current_count >= 2:
+                        logger.warning(f"📦 CACHE: Límite alcanzado para {ip_address}: {current_count}")
+                        return False
+                    
+                    # Incrementar de forma "pseudo-atómica"
+                    if hasattr(cache, 'incr'):
+                        new_count = cache.incr(cache_key)
+                        logger.info(f"📦 CACHE: Incrementado para {ip_address}: {new_count}")
+                        return new_count <= 2
+                    else:
+                        # Fallback sin atomicidad garantizada
+                        cache.set(cache_key, current_count + 1, 86400)
+                        return True
+                        
+                except Exception as e:
+                    logger.warning(f"📦 CACHE: Error en incr: {e}")
+                    return None
+            else:
+                logger.warning("📦 CACHE: Backend no soporta add(), usando DB")
+                return None
+                
+        except Exception as e:
+            logger.error(f"📦 CACHE: Error general: {e}")
+            return None
+    
+    def check_database_limit(self, ip_address):
+        """Verificación por base de datos con locking"""
+        try:
+            from analyzer.models import AnonymousUsageTracker
+            from django.utils import timezone
+            from django.db import transaction
+            
+            today = timezone.now().date()
+            
+            with transaction.atomic():
+                # Usar select_for_update para evitar race conditions
+                tracker, created = AnonymousUsageTracker.objects.select_for_update().get_or_create(
+                    ip_address=ip_address,
+                    date=today,
+                    defaults={'requests_count': 0}
+                )
+                
+                if tracker.requests_count >= 2:
+                    logger.warning(f"💾 DB: Límite alcanzado para {ip_address}: {tracker.requests_count}")
+                    return False
+                
+                # Incrementar contador
+                tracker.requests_count += 1
+                tracker.save()
+                
+                logger.info(f"💾 DB: Incrementado para {ip_address}: {tracker.requests_count}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"💾 DB: Error en database limit: {e}")
+            return None
+    
+    def check_session_limit(self, request):
+        """Verificación por sesión como último recurso"""
+        try:
+            from django.utils import timezone
+            day_key = timezone.now().strftime('%Y%m%d')
+            sess_key = f'anon_requests_{day_key}'
+            
+            count = int(request.session.get(sess_key, 0))
+            
+            if count >= 2:
+                logger.warning(f"🗃️ SESSION: Límite alcanzado: {count}")
+                return False
+            
+            request.session[sess_key] = count + 1
+            request.session.modified = True
+            
+            logger.info(f"🗃️ SESSION: Incrementado: {count + 1}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"🗃️ SESSION: Error: {e}")
+            # En caso de error total, permitir (fail-open)
+            return True
+    
+    def get_hours_until_reset(self):
+        """Calcula horas hasta el reset del día siguiente"""
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        tomorrow = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        delta = tomorrow - now
+        return round(delta.total_seconds() / 3600, 1)
+
+
+class UserLimitsMiddleware:
+    """Middleware para verificar límites de usuarios autenticados"""
+    
+    def __init__(self, get_response):
+        self.get_response = get_response
+    
+    def __call__(self, request):
+        # Reset contador mensual si es necesario para usuarios autenticados
+        if hasattr(request, 'user') and request.user.is_authenticated:
+            if hasattr(request.user, 'profile'):
+                try:
+                    request.user.profile.reset_monthly_counter_if_needed()
+                except Exception as e:
+                    logger.error(f"Error resetting monthly counter: {e}")
+        
+        return self.get_response(request)
+
+
+# ========================================
+# CLASES LEGACY PARA COMPATIBILIDAD
+# ========================================
+
+class RateLimitMiddleware(ImprovedRateLimitMiddleware):
+    """Alias para compatibilidad con configuración existente"""
+    pass
+
 
 class RequestLoggingMiddleware:
     """Middleware para logging detallado de requests"""
@@ -36,96 +267,6 @@ class RequestLoggingMiddleware:
             ip = x_forwarded_for.split(',')[0]
         else:
             ip = request.META.get('REMOTE_ADDR')
-        return ip
-
-
-class RateLimitMiddleware:
-    """Middleware para rate limiting con debugging completo"""
-    
-    def __init__(self, get_response):
-        self.get_response = get_response
-    
-    def __call__(self, request):
-        import logging
-        logger = logging.getLogger(__name__)
-        
-        # LOG CADA REQUEST
-        try:
-            is_auth = bool(getattr(request, 'user', None) and request.user.is_authenticated)
-        except Exception:
-            is_auth = False
-        logger.info(f"🔍 MIDDLEWARE: {request.method} {request.path} - Auth: {is_auth}")
-        
-        # Solo aplicar a análisis POST en home
-        if request.path == '/' and request.method.upper() == 'POST':
-            logger.info("🎯 MIDDLEWARE: Es POST en /")
-            
-            # Verificar si es usuario anónimo
-            if not is_auth:
-                logger.info("🚫 MIDDLEWARE: Usuario anónimo detectado")
-                
-                ip_address = self.get_client_ip(request)
-                logger.info(f"🔍 MIDDLEWARE: IP detectada: {ip_address}")
-                
-                # Usar el modelo para verificar límites
-                try:
-                    from analyzer.models import AnonymousUsageTracker
-                    logger.info("📦 MIDDLEWARE: Importando AnonymousUsageTracker")
-                    
-                    can_make = AnonymousUsageTracker.can_make_request(ip_address, limit=2)
-                    logger.info(f"🔍 MIDDLEWARE: can_make_request resultado: {can_make}")
-                    
-                    if not can_make:
-                        logger.warning(f"🚫 MIDDLEWARE: BLOQUEANDO IP: {ip_address}")
-                        return JsonResponse({
-                            'success': False,
-                            'limit_reached': True,
-                            'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.',
-                            'register_url': '/register/'
-                        }, status=429)
-                    
-                    logger.info(f"✅ MIDDLEWARE: PERMITIENDO IP: {ip_address}")
-                    
-                except Exception as e:
-                    logger.error(f"❌ MIDDLEWARE: Error en rate limiting: {e}", exc_info=True)
-                    # Fallback por sesión si la DB no está disponible
-                    try:
-                        from django.utils import timezone
-                        day_key = timezone.now().strftime('%Y%m%d')
-                        sess_key = f'anon_requests_{day_key}'
-                        count = int(request.session.get(sess_key, 0) or 0)
-                        logger.info(f"🗃️ MIDDLEWARE: Fallback session count {count} for {ip_address}")
-                        if count >= 2:
-                            logger.warning(f"🚫 MIDDLEWARE: BLOQUEANDO por sesión a {ip_address}")
-                            return JsonResponse({
-                                'success': False,
-                                'limit_reached': True,
-                                'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.',
-                                'register_url': '/register/'
-                            }, status=429)
-                        request.session[sess_key] = count + 1
-                        request.session.modified = True
-                        logger.info(f"✅ MIDDLEWARE: Fallback session increment to {count+1} para {ip_address}")
-                    except Exception:
-                        # Permitir si incluso el fallback falla
-                        pass
-            else:
-                logger.info("👤 MIDDLEWARE: Usuario autenticado, saltando rate limit")
-        else:
-            logger.info(f"⏭️ MIDDLEWARE: Saltando - {request.method} {request.path}")
-        
-        response = self.get_response(request)
-        logger.info(f"📤 MIDDLEWARE: Response status: {response.status_code}")
-        return response
-    
-    def get_client_ip(self, request):
-        """Obtiene la IP real del cliente (Railway/proxy aware)"""
-        # Railway usa X-Forwarded-For
-        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-        if x_forwarded_for:
-            ip = x_forwarded_for.split(',')[0].strip()
-        else:
-            ip = request.META.get('REMOTE_ADDR', '127.0.0.1')
         return ip
 
 
@@ -195,20 +336,3 @@ class MaintenanceModeMiddleware:
             return render(request, 'analyzer/maintenance.html', status=503)
         
         return self.get_response(request)
-    
-    # analyzer/middleware.py - AGREGAR esta clase (no reemplazar las existentes)
-
-class UserLimitsMiddleware:
-    """Middleware para verificar y actualizar límites de usuario"""
-    
-    def __init__(self, get_response):
-        self.get_response = get_response
-    
-    def __call__(self, request):
-        # Reset contador mensual si es necesario
-        if hasattr(request, 'user') and request.user.is_authenticated:
-            if hasattr(request.user, 'profile'):
-                request.user.profile.reset_monthly_counter_if_needed()
-        
-        response = self.get_response(request)
-        return response
