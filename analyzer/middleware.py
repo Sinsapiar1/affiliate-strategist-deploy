@@ -13,21 +13,29 @@ logger = logging.getLogger(__name__)
 
 class StrictRateLimitMiddleware:
     """
-    Middleware ESTRICTO que SÍ bloquea usuarios anónimos
+    Middleware que SÍ bloquea usuarios anónimos usando el sistema existente
     """
     
     def __init__(self, get_response):
         self.get_response = get_response
     
     def __call__(self, request):
+        # LOG cada request para debugging
+        try:
+            is_auth = bool(getattr(request, 'user', None) and request.user.is_authenticated)
+        except Exception:
+            is_auth = False
+        logger.info(f"🔍 STRICT MIDDLEWARE: {request.method} {request.path} - Auth: {is_auth}")
+        
         # SOLO aplicar a análisis POST en home
         if request.path == '/' and request.method.upper() == 'POST':
+            logger.info("🎯 STRICT MIDDLEWARE: Es POST en /")
             
             # VERIFICAR si es usuario anónimo
-            if not request.user.is_authenticated:
+            if not is_auth:
                 logger.warning(f"🚫 ANÓNIMO detectado: {self.get_client_ip(request)}")
                 
-                # BLOQUEAR INMEDIATAMENTE con límite estricto
+                # USAR el método existente que SÍ funciona
                 if not self.check_anonymous_strict_limit(request):
                     logger.error(f"🚫 BLOQUEANDO análisis anónimo: {self.get_client_ip(request)}")
                     return JsonResponse({
@@ -40,8 +48,13 @@ class StrictRateLimitMiddleware:
                     }, status=429)
                 
                 logger.info(f"✅ Permitiendo análisis anónimo: {self.get_client_ip(request)}")
+            else:
+                logger.info("👤 STRICT MIDDLEWARE: Usuario autenticado, saltando rate limit")
+        else:
+            logger.info(f"⏭️ STRICT MIDDLEWARE: Saltando - {request.method} {request.path}")
         
         response = self.get_response(request)
+        logger.info(f"📤 STRICT MIDDLEWARE: Response status: {response.status_code}")
         return response
     
     def get_client_ip(self, request):
@@ -55,75 +68,40 @@ class StrictRateLimitMiddleware:
     
     def check_anonymous_strict_limit(self, request):
         """
-        Verificación ESTRICTA con múltiples layers
+        Verificación usando el método existente que YA FUNCIONA
         """
         ip_address = self.get_client_ip(request)
         
-        # LAYER 1: Base de datos (más confiable)
-        db_allowed = self.check_db_limit(ip_address)
-        if not db_allowed:
-            return False
-        
-        # LAYER 2: Sesión como backup
-        session_allowed = self.check_session_limit(request)
-        if not session_allowed:
-            return False
-        
-        return True
-    
-    def check_db_limit(self, ip_address):
-        """Verificación por DB con transacciones atómicas"""
         try:
             from analyzer.models import AnonymousUsageTracker
-            today = timezone.now().date()
+            logger.info(f"📦 MIDDLEWARE: Verificando límite para IP: {ip_address}")
             
-            with transaction.atomic():
-                tracker, created = AnonymousUsageTracker.objects.select_for_update().get_or_create(
-                    ip_address=ip_address,
-                    date=today,
-                    defaults={'requests_count': 0}
-                )
+            # Usar el método que ya existe y funciona
+            can_make = AnonymousUsageTracker.can_make_request(ip_address, limit=2)
+            logger.info(f"🔍 MIDDLEWARE: can_make_request resultado: {can_make}")
+            
+            return can_make
+            
+        except Exception as e:
+            logger.error(f"❌ MIDDLEWARE: Error verificando límite: {e}")
+            # Fallback por sesión si falla DB
+            try:
+                day_key = timezone.now().strftime('%Y%m%d')
+                session_key = f'anon_count_{day_key}'
+                count = int(request.session.get(session_key, 0))
                 
-                logger.info(f"📊 DB Check - IP: {ip_address}, Count: {tracker.requests_count}")
-                
-                if tracker.requests_count >= 2:
-                    logger.warning(f"🚫 DB LIMIT - IP {ip_address}: {tracker.requests_count}/2")
+                if count >= 2:
+                    logger.warning(f"🚫 SESSION FALLBACK: Límite alcanzado: {count}")
                     return False
                 
-                # Incrementar contador ANTES de permitir
-                tracker.requests_count += 1
-                tracker.save()
-                
-                logger.info(f"✅ DB ALLOW - IP {ip_address}: {tracker.requests_count}/2")
+                request.session[session_key] = count + 1
+                request.session.modified = True
+                logger.info(f"✅ SESSION FALLBACK: Permitido: {count + 1}")
                 return True
                 
-        except Exception as e:
-            logger.error(f"❌ DB Error: {e}")
-            return False  # Si falla DB, BLOQUEAR por seguridad
-    
-    def check_session_limit(self, request):
-        """Verificación por sesión como backup"""
-        try:
-            day_key = timezone.now().strftime('%Y%m%d')
-            session_key = f'anon_count_{day_key}'
-            
-            count = int(request.session.get(session_key, 0))
-            logger.info(f"📊 Session Check: {count}/2")
-            
-            if count >= 2:
-                logger.warning(f"🚫 SESSION LIMIT: {count}/2")
-                return False
-            
-            # Incrementar sesión
-            request.session[session_key] = count + 1
-            request.session.modified = True
-            
-            logger.info(f"✅ SESSION ALLOW: {count + 1}/2")
-            return True
-            
-        except Exception as e:
-            logger.error(f"❌ Session Error: {e}")
-            return False  # Si falla sesión, BLOQUEAR por seguridad
+            except Exception as e2:
+                logger.error(f"❌ SESSION FALLBACK: Error: {e2}")
+                return False  # Si todo falla, BLOQUEAR por seguridad
 
 
 class UserCounterFixMiddleware:
