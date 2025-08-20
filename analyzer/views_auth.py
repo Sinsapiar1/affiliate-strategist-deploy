@@ -14,6 +14,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 import json
 import re
+import logging
 
 class RegisterView(View):
     """
@@ -25,7 +26,6 @@ class RegisterView(View):
         return render(request, 'analyzer/auth/register.html')
     
     def post(self, request):
-        import logging
         logger = logging.getLogger(__name__)
         
         try:
@@ -63,6 +63,7 @@ class RegisterView(View):
                 return render(request, 'analyzer/auth/register.html')
             
             # Crear usuario con transacción
+            user = None
             with transaction.atomic():
                 logger.info(f"🔄 Creando usuario: {username}")
                 user = User.objects.create_user(
@@ -87,10 +88,11 @@ class RegisterView(View):
                 if company:
                     user.first_name = company
                     user.save()
-
-            # Auto-login fuera del bloque atómico
-            login(request, user)
-            logger.info(f"✅ Usuario registrado y logueado: {username}")
+        
+            # Login FUERA del bloque atómico
+            if user:
+                login(request, user)
+                logger.info(f"✅ Usuario registrado y logueado: {username}")
                 
                 messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
                 
@@ -102,7 +104,9 @@ class RegisterView(View):
                     })
                 else:
                     return redirect('/')
-            
+            else:
+                raise Exception("Usuario no creado correctamente")
+                
         except Exception as e:
             # Log completo del error
             logger.error(f"❌ Error crítico en registro: {str(e)}", exc_info=True)
