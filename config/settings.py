@@ -48,12 +48,13 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    # Rate limit debe ir después de Authentication para distinguir usuario anónimo vs autenticado
-    'analyzer.middleware.RateLimitMiddleware',
+    
+    # ✅ MIDDLEWARES DE RATE LIMITING (ORDEN IMPORTANTE)
+    'analyzer.middleware.StrictRateLimitMiddleware',
+    'analyzer.middleware.UserCounterFixMiddleware',
+    
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'analyzer.middleware.UserLimitsMiddleware',
-    # 'corsheaders.middleware.CorsMiddleware',  # Si necesitas CORS
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -359,6 +360,59 @@ LOGGING = {
         },
         'analyzer.middleware': {
             'handlers': ['rate_limit_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}
+
+# ✅ CONFIGURACIÓN DE MONETIZACIÓN
+MONETIZATION_SETTINGS = {
+    'ANONYMOUS_DAILY_LIMIT': 2,
+    'FREE_MONTHLY_LIMIT': 5,
+    'PRO_MONTHLY_LIMIT': 100,
+    'PREMIUM_MONTHLY_LIMIT': 999999,
+    'STRIPE_PUBLISHABLE_KEY': '',  # Agregar cuando configures Stripe
+    'STRIPE_SECRET_KEY': '',       # Agregar cuando configures Stripe
+}
+
+# ✅ LOGGING ESPECÍFICO PARA DEBUGGING MONETIZACIÓN
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'formatter': 'verbose',
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'monetization_file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs' / 'monetization.log',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'analyzer.middleware': {
+            'handlers': ['monetization_file', 'console'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'analyzer.monetization': {
+            'handlers': ['monetization_file', 'console'],
             'level': 'DEBUG',
             'propagate': False,
         },

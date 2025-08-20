@@ -66,16 +66,17 @@ def home(request):
                 }
             )
             
-            # Verificar límites de forma atómica
+            # Solo verificar, NO incrementar aún
             if not profile.can_analyze_atomic():
-                logger.warning(f"🚫 Límite alcanzado para {request.user.username}")
+                logger.warning(f"🚫 Límite mensual alcanzado para {request.user.username}")
                 return JsonResponse({
                     'success': False,
                     'limit_reached': True,
-                    'error': f'Has alcanzado tu límite mensual ({profile.analyses_limit_monthly}). Actualiza tu plan para continuar.',
+                    'error': f'Has alcanzado tu límite mensual ({profile.analyses_limit_monthly}). ¡Upgrade para continuar!',
                     'upgrade_url': '/upgrade/',
                     'current_count': profile.analyses_this_month,
-                    'limit': profile.analyses_limit_monthly
+                    'limit': profile.analyses_limit_monthly,
+                    'plan': profile.plan
                 }, status=429)
                 
         except Exception as e:
@@ -143,12 +144,13 @@ def home(request):
             success=True
         )
 
-        # Incrementar contadores si es usuario autenticado y el análisis fue exitoso
+        # Incrementar contadores SOLO después de análisis exitoso
         if request.user.is_authenticated and analysis.success:
             try:
+                # Incrementar SOLO una vez por análisis exitoso
                 incremented = request.user.profile.add_analysis_count_atomic()
                 if not incremented:
-                    logger.warning(f"⚠️ Análisis creado pero contador no incrementado (límite post-check) para {request.user.username}")
+                    logger.warning(f"⚠️ Análisis creado pero contador no incrementado para {request.user.username}")
             except Exception as e:
                 logger.error(f"❌ Error incrementando contador: {str(e)}")
 
