@@ -88,7 +88,27 @@ class RateLimitMiddleware:
                     
                 except Exception as e:
                     logger.error(f"❌ MIDDLEWARE: Error en rate limiting: {e}", exc_info=True)
-                    # En caso de error, permitir la request
+                    # Fallback por sesión si la DB no está disponible
+                    try:
+                        from django.utils import timezone
+                        day_key = timezone.now().strftime('%Y%m%d')
+                        sess_key = f'anon_requests_{day_key}'
+                        count = int(request.session.get(sess_key, 0))
+                        logger.info(f"🗃️ MIDDLEWARE: Fallback session count {count} for {ip_address}")
+                        if count >= 2:
+                            logger.warning(f"🚫 MIDDLEWARE: BLOQUEANDO por sesión a {ip_address}")
+                            return JsonResponse({
+                                'success': False,
+                                'limit_reached': True,
+                                'error': 'Has alcanzado el límite diario de análisis gratuitos (2). Crea una cuenta para más.',
+                                'register_url': '/register/'
+                            }, status=429)
+                        request.session[sess_key] = count + 1
+                        request.session.modified = True
+                        logger.info(f"✅ MIDDLEWARE: Fallback session increment to {count+1} para {ip_address}")
+                    except Exception:
+                        # Permitir si incluso el fallback falla
+                        pass
             else:
                 logger.info("👤 MIDDLEWARE: Usuario autenticado, saltando rate limit")
         else:

@@ -121,8 +121,8 @@ def home(request):
             success=True
         )
 
-        # Incrementar contadores si es usuario autenticado
-        if request.user.is_authenticated:
+        # Incrementar contadores si es usuario autenticado y el análisis fue exitoso
+        if request.user.is_authenticated and analysis.success:
             try:
                 incremented = request.user.profile.add_analysis_count_atomic()
                 if not incremented:
