@@ -96,17 +96,31 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-# ✅ DATABASE - Railway PostgreSQL
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('PGDATABASE', 'railway'),
-        'USER': os.getenv('PGUSER', 'postgres'),
-        'PASSWORD': os.getenv('PGPASSWORD', ''),
-        'HOST': os.getenv('PGHOST', 'localhost'),
-        'PORT': os.getenv('PGPORT', '5432'),
+# ✅ DATABASE - Usa Postgres si hay variables PG*/DATABASE_URL, si no, fallback a SQLite
+if os.getenv('PGHOST') or os.getenv('DATABASE_URL') or os.getenv('DB_HOST'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('PGDATABASE', os.getenv('DB_NAME', 'railway')),
+            'USER': os.getenv('PGUSER', os.getenv('DB_USER', 'postgres')),
+            'PASSWORD': os.getenv('PGPASSWORD', os.getenv('DB_PASSWORD', '')),
+            'HOST': os.getenv('PGHOST', os.getenv('DB_HOST', 'localhost')),
+            'PORT': os.getenv('PGPORT', os.getenv('DB_PORT', '5432')),
+            'OPTIONS': {
+                'connect_timeout': 10,
+            }
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': Path(__file__).resolve().parent.parent / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 20,
+            }
+        }
+    }
 
 # ✅ Password validation
 AUTH_PASSWORD_VALIDATORS = [

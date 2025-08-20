@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+    <link rel="icon" href="https://cdn.jsdelivr.net/gh/twitter/twemoji@14.0.2/assets/svg/1f4b0.svg" type="image/svg+xml">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Affiliate Strategist Pro - Genera Estrategias con IA</title>
@@ -283,7 +284,7 @@
                                 </div>
 
                                 <div class="text-center">
-                                    <button type="submit" class="btn btn-primary btn-lg">
+                                    <button type="submit" class="btn btn-primary btn-lg" id="submitBasicBtn">
                                         <i class="fas fa-rocket me-2"></i>Generar Estrategia
                                     </button>
                                 </div>
@@ -347,7 +348,7 @@
                                 </div>
 
                                 <div class="text-center">
-                                    <button type="submit" class="btn btn-warning btn-lg">
+                                    <button type="submit" class="btn btn-warning btn-lg" id="submitCompetitiveBtn">
                                         <i class="fas fa-chart-bar me-2"></i>Análisis Competitivo
                                     </button>
                                 </div>
@@ -473,6 +474,22 @@
                         productInfo: data.product || data.product_info,
                         timestamp: new Date().toLocaleString()
                     };
+                    // ✅ Actualizar banner de uso si viene en la respuesta
+                    if (data.usage) {
+                        const banner = document.querySelector('.alert.alert-info, .alert.alert-warning');
+                        if (banner) {
+                            const planLabel = data.usage.plan === 'premium' ? '💎 Premium' : '🆓 Gratuito';
+                            banner.classList.remove('alert-info','alert-warning');
+                            banner.classList.add(data.usage.remaining <= 1 ? 'alert-warning' : 'alert-info');
+                            banner.innerHTML = `
+                                <div>
+                                    <strong>${planLabel} - Análisis este mes: ${data.usage.this_month}/${data.usage.limit}</strong>
+                                    ${data.usage.remaining === 0 ? '<span class="text-danger ms-3">¡Has alcanzado tu límite mensual!</span>' : (data.usage.remaining <= 2 ? `<span class="text-warning ms-3">Te quedan ${data.usage.remaining} análisis</span>` : '')}
+                                </div>
+                                ${data.usage.plan === 'free' ? '<a href="/upgrade/" class="btn btn-sm btn-warning"><i class="fas fa-crown me-1"></i>Obtener Pro</a>' : ''}
+                            `;
+                        }
+                    }
                     
                     currentDownloadId = data.analysis_id;
                     resolve(data);
@@ -576,9 +593,9 @@
                     </div>
                     
                     <div class="mt-3 d-flex gap-2">
-                        <button class="btn btn-success" onclick="downloadPDF('${result.analysisId}')">
+                        <a class="btn btn-success" href="/download-pdf/${result.analysisId}/" target="_blank" rel="noopener">
                             <i class="fas fa-download me-2"></i>Descargar PDF
-                        </button>
+                        </a>
                         <button class="btn btn-outline-primary" onclick="shareStrategy()">
                             <i class="fas fa-share me-2"></i>Compartir
                         </button>
@@ -709,218 +726,6 @@
         });
     });
 });
-
-// REEMPLAZA la función handleFormSubmit con esta versión mejorada:
-
-// Objeto para almacenar múltiples resultados
-let analysisResults = {
-    basic: null,
-    competitive: null
-};
-
-function handleFormSubmit(form, e) {
-    e.preventDefault();
-    
-    if (!form.checkValidity()) {
-        form.classList.add('was-validated');
-        return;
-    }
-
-    showLoading(true);
-    alertContainer.innerHTML = '';
-    
-    const formData = new FormData(form);
-    const analysisType = formData.get('analysis_type');
-
-    fetch('/', {
-        method: 'POST',
-        body: formData,
-        headers: {
-            'X-CSRFToken': formData.get('csrfmiddlewaretoken')
-        }
-    })
-    .then(response => response.json())
-    // En la sección de JavaScript, modificar el manejo de respuestas:
-
-    .then(data => {
-        showLoading(false);
-        
-        if (data.success) {
-            showAlert('¡Análisis completado exitosamente!', 'success');
-            // ... código existente ...
-        } else {
-            // ✅ MANEJO ESPECIAL PARA LÍMITES
-            if (data.limit_reached) {
-                let limitMessage = data.error;
-                
-                if (data.upgrade_url) {
-                    limitMessage += `
-                        <div class="mt-3">
-                            <a href="${data.upgrade_url}" class="btn btn-warning btn-sm">
-                                <i class="fas fa-crown me-2"></i>Actualizar Plan
-                            </a>
-                        </div>
-                    `;
-                } else if (data.register_url) {
-                    limitMessage += `
-                        <div class="mt-3">
-                            <a href="${data.register_url}" class="btn btn-success btn-sm me-2">
-                                Registrarse Gratis
-                            </a>
-                            <a href="/login/" class="btn btn-outline-primary btn-sm">
-                                Iniciar Sesión
-                            </a>
-                        </div>
-                    `;
-                }
-                
-                showAlert(limitMessage, 'warning');
-                
-                // Actualizar contador en la página si existe
-                if (data.analyses_used !== undefined) {
-                    const counterElement = document.querySelector('.analyses-counter');
-                    if (counterElement) {
-                        counterElement.textContent = `${data.analyses_used}/${data.analyses_limit}`;
-                    }
-                }
-            } else {
-                showAlert(data.error || 'Error al procesar el análisis');
-            }
-        }
-})
-    .catch(error => {
-        showLoading(false);
-        console.error('Error:', error);
-        showAlert('Error de conexión. Intenta nuevamente.');
-    });
-}
-
-// Función para actualizar tabs
-function updateResultsTabs() {
-    const hasBasic = analysisResults.basic !== null;
-    const hasCompetitive = analysisResults.competitive !== null;
-    
-    if (hasBasic && hasCompetitive) {
-        // Crear tabs si no existen
-        if (!document.getElementById('resultTabs')) {
-            const tabsHTML = `
-                <ul class="nav nav-pills justify-content-center mb-3" id="resultTabs">
-                    <li class="nav-item">
-                        <button class="nav-link active" onclick="showResult('basic')">
-                            📊 Análisis Básico
-                        </button>
-                    </li>
-                    <li class="nav-item">
-                        <button class="nav-link" onclick="showResult('competitive')">
-                            ⚔️ Análisis Competitivo
-                        </button>
-                    </li>
-                </ul>
-            `;
-            resultsContent.insertAdjacentHTML('beforebegin', tabsHTML);
-        }
-    }
-}
-
-// Función para mostrar resultado específico
-function showResult(type) {
-    // Actualizar tabs activos
-    document.querySelectorAll('#resultTabs .nav-link').forEach(tab => {
-        tab.classList.remove('active');
-    });
-    event.target.classList.add('active');
-    
-    // Mostrar el resultado correspondiente
-    const result = analysisResults[type];
-    if (result) {
-        displayResult(type, result);
-    }
-}
-
-// Función para mostrar el resultado
-function displayResult(type, data) {
-    const bgColor = type === 'competitive' ? 'danger' : 'success';
-    const icon = type === 'competitive' ? '⚔️' : '✨';
-    const title = type === 'competitive' ? 'Estrategia Competitiva' : 'Estrategia Generada';
-    
-    resultsContent.innerHTML = `
-        <div class="alert alert-${bgColor} bg-opacity-10">
-            <h5>${icon} ${title}</h5>
-            <div class="mt-3" style="white-space: pre-wrap; line-height: 1.6;">
-                ${data.response}
-            </div>
-            <div class="mt-3">
-                <a href="/download-pdf/${data.analysis_id}/" class="btn btn-${bgColor}">
-                    <i class="fas fa-download me-2"></i>Descargar PDF
-                </a>
-                <button class="btn btn-outline-${bgColor} ms-2" onclick="shareStrategy()">
-                    <i class="fas fa-share me-2"></i>Compartir
-                </button>
-            </div>
-        </div>
-    `;
-}
-        // ✅ EVENT LISTENERS
-        if (basicForm) {
-            basicForm.addEventListener('submit', (e) => handleFormSubmit(basicForm, e));
-        }
-        
-        if (competitiveForm) {
-            competitiveForm.addEventListener('submit', (e) => handleFormSubmit(competitiveForm, e));
-        }
-
-        // ✅ FUNCIÓN PARA COMPARTIR
-        window.shareStrategy = function() {
-            if (navigator.share) {
-                navigator.share({
-                    title: 'Estrategia de Marketing - Affiliate Strategist Pro',
-                    text: 'Mira esta estrategia generada con IA',
-                    url: window.location.href
-                });
-            } else {
-                // Fallback para navegadores sin soporte
-                navigator.clipboard.writeText(window.location.href);
-                showAlert('¡Link copiado al portapapeles!', 'success');
-            }
-        };
-
-        // ✅ AUTO-SAVE DE FORMULARIOS (LOCAL STORAGE)
-        function saveFormData(form) {
-            const formData = new FormData(form);
-            const data = {};
-            for (let [key, value] of formData.entries()) {
-                if (key !== 'api_key' && key !== 'csrfmiddlewaretoken') {
-                    data[key] = value;
-                }
-            }
-            localStorage.setItem(form.id + '_data', JSON.stringify(data));
-        }
-
-        function loadFormData(form) {
-            const savedData = localStorage.getItem(form.id + '_data');
-            if (savedData) {
-                const data = JSON.parse(savedData);
-                Object.keys(data).forEach(key => {
-                    const input = form.querySelector(`[name="${key}"]`);
-                    if (input) {
-                        input.value = data[key];
-                    }
-                });
-            }
-        }
-
-        // ✅ CARGAR DATOS GUARDADOS
-        if (basicForm) loadFormData(basicForm);
-        if (competitiveForm) loadFormData(competitiveForm);
-
-        // ✅ GUARDAR AL CAMBIAR
-        document.querySelectorAll('input, select, textarea').forEach(input => {
-            input.addEventListener('change', function() {
-                const form = this.closest('form');
-                if (form) saveFormData(form);
-            });
-        });
-    ;
     </script>
 </body>
 </html>

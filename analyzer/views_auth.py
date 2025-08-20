@@ -14,6 +14,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 import json
 import re
+import logging
 
 class RegisterView(View):
     """
@@ -25,8 +26,10 @@ class RegisterView(View):
         return render(request, 'analyzer/auth/register.html')
     
     def post(self, request):
+        logger = logging.getLogger(__name__)
+        
         try:
-            # ✅ Manejar tanto JSON como formulario
+            # Datos del formulario
             if request.content_type == 'application/json':
                 data = json.loads(request.body)
             else:
@@ -38,48 +41,62 @@ class RegisterView(View):
             password2 = data.get('password2', '')
             company = data.get('company_name', '').strip()
             
-            # ✅ Validaciones
+            logger.info(f"🔄 Intento de registro: {username} - {email}")
+            
+            # Validaciones detalladas
             errors = self.validate_registration(username, email, password, password2)
             if errors:
+                logger.warning(f"❌ Validación falló para {username}: {errors}")
                 for field, error in errors.items():
-                    messages.error(request, error)
+                    messages.error(request, f"{field}: {error}")
                 return render(request, 'analyzer/auth/register.html')
             
-            # ✅ Crear usuario
-            with transaction.atomic():
-                user = User.objects.create_user(
-                    username=username,
-                    email=email,
-                    password=password
-                )
-                
-                # ✅ Guardar información adicional en el perfil del usuario
-                if company:
-                    user.first_name = company  # Usar first_name para empresa temporalmente
-                    user.save()
-                
-                # ✅ Auto-login
-                login(request, user)
-                
-                # ✅ Mensaje de éxito
-                messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
-                
-                # ✅ Responder según el tipo de petición
-                if request.content_type == 'application/json':
-                    return JsonResponse({
-                        'success': True,
-                        'message': f'¡Bienvenido {username}!',
-                        'redirect': '/',
-                        'user': {
-                            'username': user.username,
-                            'email': user.email
-                        }
-                    })
-                else:
-                    return redirect('/')
+            # Verificar duplicados explícitamente FUERA de transacción
+            if User.objects.filter(username=username).exists():
+                logger.warning(f"❌ Username duplicado: {username}")
+                messages.error(request, f'El usuario "{username}" ya existe')
+                return render(request, 'analyzer/auth/register.html')
+            
+            if User.objects.filter(email=email).exists():
+                logger.warning(f"❌ Email duplicado: {email}")
+                messages.error(request, f'El email "{email}" ya está registrado')
+                return render(request, 'analyzer/auth/register.html')
+            
+            # Crear usuario SIN transacción atómica
+            logger.info(f"🔄 Creando usuario: {username}")
+            user = User.objects.create_user(
+                username=username,
+                email=email,
+                password=password
+            )
+            
+            # El perfil se crea automáticamente por el signal
+            logger.info(f"✅ Usuario creado, perfil automático: {username}")
+            
+            # Guardar empresa si se proporciona
+            if company:
+                user.first_name = company
+                user.save()
+            
+            # Login DIRECTO sin transacciones
+            login(request, user)
+            logger.info(f"✅ Usuario registrado y logueado: {username}")
+            
+            messages.success(request, f'¡Bienvenido {username}! Tu cuenta ha sido creada exitosamente.')
+            
+            if request.content_type == 'application/json':
+                return JsonResponse({
+                    'success': True,
+                    'message': f'¡Bienvenido {username}!',
+                    'redirect': '/'
+                })
+            else:
+                return redirect('/')
                 
         except Exception as e:
-            error_msg = 'Error al crear la cuenta. Intenta nuevamente.'
+            # Log completo del error
+            logger.error(f"❌ Error crítico en registro: {str(e)}", exc_info=True)
+            error_msg = f'Error específico: {str(e)}'
             messages.error(request, error_msg)
             
             if request.content_type == 'application/json':
@@ -239,11 +256,9 @@ class ProfileView(View):
         # ✅ Estadísticas del usuario
         from .models import AnalysisHistory
         try:
-            user_analyses = AnalysisHistory.objects.filter(
-                user=request.user if hasattr(AnalysisHistory, 'user') else None
-            ).order_by('-created_at')[:5]
-            total_analyses = user_analyses.count() if user_analyses else 0
-        except:
+            total_analyses = AnalysisHistory.objects.filter(user=request.user).count()
+            user_analyses = AnalysisHistory.objects.filter(user=request.user).order_by('-created_at')[:5]
+        except Exception:
             user_analyses = []
             total_analyses = 0
         

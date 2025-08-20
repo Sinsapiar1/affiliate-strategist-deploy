@@ -16,7 +16,7 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '0.0.0.0',
-    # Agregar tu dominio en producción
+    '.railway.app',  # Permite subdominios de Railway en producción
 ]
 
 # ✅ APLICACIONES
@@ -30,7 +30,7 @@ DJANGO_APPS = [
 ]
 
 LOCAL_APPS = [
-    'analyzer',
+    'analyzer.apps.AnalyzerConfig',
 ]
 
 THIRD_PARTY_APPS = [
@@ -43,17 +43,20 @@ INSTALLED_APPS = DJANGO_APPS + LOCAL_APPS + THIRD_PARTY_APPS
 # ✅ MIDDLEWARE MEJORADO
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # Rate limit debe ir después de Authentication para distinguir usuario anónimo vs autenticado
+    'analyzer.middleware.RateLimitMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'analyzer.middleware.UserLimitsMiddleware',
     # 'corsheaders.middleware.CorsMiddleware',  # Si necesitas CORS
 ]
 
-ROOT_URLCONF = 'affiliate_strategist.urls'
+ROOT_URLCONF = 'config.urls'
 
 # ✅ TEMPLATES MEJORADOS
 TEMPLATES = [
@@ -76,33 +79,33 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'affiliate_strategist.wsgi.application'
+WSGI_APPLICATION = 'config.wsgi.application'
 
-# ✅ BASE DE DATOS CON CONFIGURACIÓN MEJORADA
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {
-            'timeout': 20,  # Timeout en segundos
+# ✅ BASE DE DATOS: Postgres si hay variables, si no, SQLite
+if os.getenv('PGHOST') or os.getenv('DATABASE_URL') or os.getenv('DB_HOST'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('PGDATABASE', os.getenv('DB_NAME', 'railway')),
+            'USER': os.getenv('PGUSER', os.getenv('DB_USER', 'postgres')),
+            'PASSWORD': os.getenv('PGPASSWORD', os.getenv('DB_PASSWORD', '')),
+            'HOST': os.getenv('PGHOST', os.getenv('DB_HOST', 'localhost')),
+            'PORT': os.getenv('PGPORT', os.getenv('DB_PORT', '5432')),
+            'OPTIONS': {
+                'connect_timeout': 10,
+            }
         }
     }
-}
-
-# ✅ Para PostgreSQL en producción:
-# DATABASES = {
-#     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
-#         'NAME': os.getenv('DB_NAME', 'affiliate_strategist'),
-#         'USER': os.getenv('DB_USER', 'postgres'),
-#         'PASSWORD': os.getenv('DB_PASSWORD', ''),
-#         'HOST': os.getenv('DB_HOST', 'localhost'),
-#         'PORT': os.getenv('DB_PORT', '5432'),
-#         'OPTIONS': {
-#             'connect_timeout': 10,
-#         }
-#     }
-# }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {
+                'timeout': 20,  # Timeout en segundos
+            }
+        }
+    }
 
 # ✅ VALIDACIÓN DE CONTRASEÑAS
 AUTH_PASSWORD_VALIDATORS = [
@@ -134,10 +137,13 @@ STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STATICFILES_DIRS = [
     BASE_DIR / 'static',
-]
+] if os.path.exists(BASE_DIR / 'static') else []
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# WhiteNoise storage para archivos estáticos comprimidos y cacheados
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # ✅ CONFIGURACIÓN DE ARCHIVOS
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
@@ -163,8 +169,14 @@ CSRF_COOKIE_HTTPONLY = True
 CSRF_TRUSTED_ORIGINS = [
     'http://localhost:8000',
     'http://127.0.0.1:8000',
-    # Agregar tu dominio en producción: 'https://tudominio.com'
+    'https://*.railway.app',  # Confianza para dominios de Railway en HTTPS
 ]
+
+# ✅ DETRÁS DE PROXY (Railway)
+# Asegura que Django reconozca correctamente las peticiones HTTPS detrás del proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+# Railway ya maneja el redireccionamiento a HTTPS
+SECURE_SSL_REDIRECT = False
 
 # ✅ CONFIGURACIÓN DE SEGURIDAD
 if not DEBUG:
@@ -215,8 +227,9 @@ LOGGING = {
     },
 }
 
-# ✅ CREAR DIRECTORIO DE LOGS
+# ✅ CREAR DIRECTORIO DE LOGS y CACHE
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
+os.makedirs(BASE_DIR / 'cache', exist_ok=True)
 
 # ✅ CONFIGURACIÓN DE EMAIL (para futuras notificaciones)
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend'
@@ -230,11 +243,11 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 # ✅ CONFIGURACIÓN DE CACHE (para mejorar rendimiento)
 CACHES = {
     'default': {
-        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
-        'LOCATION': 'unique-snowflake',
-        'TIMEOUT': 300,  # 5 minutos
+        'BACKEND': 'django.core.cache.backends.filebased.FileBasedCache',
+        'LOCATION': str(BASE_DIR / 'cache'),
+        'TIMEOUT': 300,
         'OPTIONS': {
-            'MAX_ENTRIES': 1000,
+            'MAX_ENTRIES': 10000,
         }
     }
 }
@@ -247,19 +260,6 @@ AFFILIATE_STRATEGIST_SETTINGS = {
     'MAX_COMPETITORS': 5,        # Máximo competidores en análisis
     'CACHE_ANALYSIS_HOURS': 24,  # Horas para cachear análisis similares
 }
-
-# ✅ REST FRAMEWORK (para APIs futuras)
-# REST_FRAMEWORK = {
-#     'DEFAULT_AUTHENTICATION_CLASSES': [
-#         'rest_framework.authentication.SessionAuthentication',
-#         'rest_framework.authentication.TokenAuthentication',
-#     ],
-#     'DEFAULT_PERMISSION_CLASSES': [
-#         'rest_framework.permissions.IsAuthenticated',
-#     ],
-#     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
-#     'PAGE_SIZE': 20
-# }
 
 # ✅ CONFIGURACIÓN DE DESARROLLO
 if DEBUG:
