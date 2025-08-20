@@ -40,7 +40,7 @@ class RequestLoggingMiddleware:
 
 
 class RateLimitMiddleware:
-    """Middleware para rate limiting robusto"""
+    """Middleware para rate limiting con debugging completo"""
     
     def __init__(self, get_response):
         self.get_response = get_response
@@ -49,19 +49,34 @@ class RateLimitMiddleware:
         import logging
         logger = logging.getLogger(__name__)
         
+        # LOG CADA REQUEST
+        try:
+            is_auth = bool(getattr(request, 'user', None) and request.user.is_authenticated)
+        except Exception:
+            is_auth = False
+        logger.info(f"🔍 MIDDLEWARE: {request.method} {request.path} - Auth: {is_auth}")
+        
         # Solo aplicar a análisis POST en home
         if request.path == '/' and request.method == 'POST':
+            logger.info("🎯 MIDDLEWARE: Es POST en /")
+            
             # Verificar si es usuario anónimo
-            if not getattr(request, 'user', None) or not request.user.is_authenticated:
+            if not is_auth:
+                logger.info("🚫 MIDDLEWARE: Usuario anónimo detectado")
+                
                 ip_address = self.get_client_ip(request)
-                logger.info(f"🔍 Verificando rate limit para IP anónima: {ip_address}")
+                logger.info(f"🔍 MIDDLEWARE: IP detectada: {ip_address}")
                 
                 # Usar el modelo para verificar límites
                 try:
                     from analyzer.models import AnonymousUsageTracker
+                    logger.info("📦 MIDDLEWARE: Importando AnonymousUsageTracker")
                     
-                    if not AnonymousUsageTracker.can_make_request(ip_address, limit=2):
-                        logger.warning(f"🚫 Rate limit exceeded for IP: {ip_address}")
+                    can_make = AnonymousUsageTracker.can_make_request(ip_address, limit=2)
+                    logger.info(f"🔍 MIDDLEWARE: can_make_request resultado: {can_make}")
+                    
+                    if not can_make:
+                        logger.warning(f"🚫 MIDDLEWARE: BLOQUEANDO IP: {ip_address}")
                         return JsonResponse({
                             'success': False,
                             'limit_reached': True,
@@ -69,13 +84,18 @@ class RateLimitMiddleware:
                             'register_url': '/register/'
                         }, status=429)
                     
-                    logger.info(f"✅ Rate limit OK para IP: {ip_address}")
+                    logger.info(f"✅ MIDDLEWARE: PERMITIENDO IP: {ip_address}")
                     
                 except Exception as e:
-                    logger.error(f"❌ Error en rate limiting: {e}")
+                    logger.error(f"❌ MIDDLEWARE: Error en rate limiting: {e}", exc_info=True)
                     # En caso de error, permitir la request
+            else:
+                logger.info("👤 MIDDLEWARE: Usuario autenticado, saltando rate limit")
+        else:
+            logger.info(f"⏭️ MIDDLEWARE: Saltando - {request.method} {request.path}")
         
         response = self.get_response(request)
+        logger.info(f"📤 MIDDLEWARE: Response status: {response.status_code}")
         return response
     
     def get_client_ip(self, request):

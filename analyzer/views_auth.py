@@ -70,17 +70,8 @@ class RegisterView(View):
                 password=password
             )
             
-            # Crear perfil SIN transacción atómica
-            from .models import UserProfile
-            profile, created = UserProfile.objects.get_or_create(
-                user=user,
-                defaults={
-                    'plan': 'free',
-                    'analyses_limit_monthly': 5,
-                    'analyses_this_month': 0
-                }
-            )
-            logger.info(f"✅ Perfil creado: {username} - {created}")
+            # El perfil se crea automáticamente por el signal
+            logger.info(f"✅ Usuario creado, perfil automático: {username}")
             
             # Guardar empresa si se proporciona
             if company:
