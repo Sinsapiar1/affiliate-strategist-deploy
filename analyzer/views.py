@@ -124,8 +124,9 @@ def home(request):
         # Incrementar contadores si es usuario autenticado
         if request.user.is_authenticated:
             try:
-                request.user.profile.add_analysis_count_atomic()
-                logger.info(f"✅ Contador incrementado para {request.user.username}")
+                incremented = request.user.profile.add_analysis_count_atomic()
+                if not incremented:
+                    logger.warning(f"⚠️ Análisis creado pero contador no incrementado (límite post-check) para {request.user.username}")
             except Exception as e:
                 logger.error(f"❌ Error incrementando contador: {str(e)}")
 
@@ -136,7 +137,16 @@ def home(request):
             'product': {
                 'title': analysis.product_title,
                 'price': analysis.product_price,
-            }
+            },
+            # Estado de contador para refrescar UI en cliente
+            **({
+                'usage': {
+                    'this_month': request.user.profile.analyses_this_month,
+                    'limit': request.user.profile.analyses_limit_monthly,
+                    'remaining': request.user.profile.analyses_remaining,
+                    'plan': request.user.profile.plan
+                }
+            } if request.user.is_authenticated and hasattr(request.user, 'profile') else {})
         })
     except Exception as e:
         logger.error(f"❌ Error guardando análisis: {str(e)}")

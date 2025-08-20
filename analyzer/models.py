@@ -379,7 +379,9 @@ class UserProfile(models.Model):
             return can_analyze
     
     def add_analysis_count_atomic(self):
-        """Incrementa contador de forma atómica"""
+        """Incrementa contador de forma atómica si no excede el límite.
+        Retorna True si incrementó; False si ya alcanzó el límite.
+        """
         from django.db import transaction
         import logging
         logger = logging.getLogger(__name__)
@@ -388,12 +390,21 @@ class UserProfile(models.Model):
             profile = UserProfile.objects.select_for_update().get(pk=self.pk)
             profile.reset_monthly_counter_if_needed()
             
+            # Verificar límites antes de incrementar
+            if profile.plan != 'premium' and profile.analyses_this_month >= profile.analyses_limit_monthly:
+                logger.warning(
+                    f"🚫 Límite alcanzado (post-check) para {profile.user.username}: "
+                    f"{profile.analyses_this_month}/{profile.analyses_limit_monthly}"
+                )
+                return False
+            
             old_count = profile.analyses_this_month
             profile.analyses_this_month += 1
             profile.total_analyses += 1
             profile.save(update_fields=['analyses_this_month', 'total_analyses'])
             
             logger.info(f"✅ {profile.user.username}: análisis incrementado {old_count} → {profile.analyses_this_month}")
+            return True
     
     def get_plan_details(self):
         """Retorna detalles completos del plan"""
